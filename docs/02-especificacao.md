@@ -125,7 +125,7 @@ Schema de tabelas e colunas compatível com DBs legacy (D3) para que a migraçã
 | `mcp_clients` | `name UNIQUE`, `description`, `access_token UNIQUE`, `allow_list JSON NOT NULL` | `["*"]` ou lista de nomes |
 | `tool_groups` | `name UNIQUE`, `description`, `included_tools JSON`, `included_servers JSON`, `excluded_tools JSON` | |
 | `upstream_oauth_pending_sessions` | `session_id UNIQUE` (64 hex), `server_name IDX`, `transport`, `server_input JSON`, `force`, `redirect_uri`, `client_id`, `client_secret`, `scopes JSON`, `state`, `code_verifier`, `expires_at IDX`, `initiated_by` | TTL 10 min |
-| `upstream_oauth_tokens` | `server_name UNIQUE`, `transport`, `client_id`, `client_secret`, `redirect_uri`, `scopes JSON`, `access_token`, `token_type`, `refresh_token`, `scope`, `expires_at` | |
+| `upstream_oauth_tokens` | `server_name UNIQUE`, `transport`, `client_id`, `client_secret`, `redirect_uri`, `scopes JSON`, `access_token`, `token_type`, `refresh_token`, `scope`, `expires_at`, **`issuer`** (novo, migração `0004`) | |
 
 JSON: Postgres `jsonb`; SQLite `TEXT`. Lido/escrito como `sqlx::types::Json<serde_json::Value>` em ambos, sem casts.
 
@@ -237,7 +237,7 @@ pub struct UpstreamConn { peer: rmcp::service::RunningService<RoleClient, ()>, l
 
 ### 4.8 OAuth upstream
 
-Fluxo em duas fases, implementado sobre `rmcp::transport::auth` (`AuthorizationManager`, PKCE, discovery de metadata, Dynamic Client Registration) — confirmar no Spike S3 que `rmcp` expõe DCR e a construção da authorization URL com `state` nosso; caso contrário, implementar os ~200 LOC em cima de `oauth2` crate.
+Fluxo em duas fases, implementado sobre `rmcp::transport::auth` (`AuthorizationManager`, PKCE, discovery, DCR, `StateStore`/`CredentialStore` nossos, `AuthClient`) — validado no Spike S3 (`docs/spikes/S3-upstream-oauth.md`).
 
 Fase 1 (`register` falha com 401/`WWW-Authenticate` → `AuthorizationRequired`):
 1. `oauth_redirect_uri` obrigatório → senão `InvalidInput` + `code = "upstream_oauth_required"` (o CLI usa este código para arrancar o listener loopback).
@@ -381,7 +381,7 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 | Risco | Mitigação |
 |---|---|
 | ~~`rmcp` não propaga `http::request::Parts`/extensions para o `ServerHandler`~~ | **Resolvido** — Spike S1 (`docs/spikes/S1-rmcp-principal.md`): propaga por pedido em ambos os modos de sessão; cliente `rmcp` e `mcp-remote` verificados. |
-| `rmcp` `auth` não cobre DCR ou não deixa controlar `state` | Spike S3. Plano B: `oauth2` crate directo (~200 LOC). |
+| ~~`rmcp` `auth` não cobre DCR ou não deixa controlar `state`~~ | **Resolvido** — Spike S3: cobre DCR, PKCE, `state` via `StateStore` nosso, refresh e `AuthClient` (`docs/spikes/S3-upstream-oauth.md`). |
 | ~~Camada de DB sobre DBs legacy~~ | **Resolvido** — `trunks-db` adopta as fixtures legacy nos dois backends (migrações `IF NOT EXISTS` + `normalize_legacy`, testes em CI com Postgres 16). |
 | Protocolo: clientes antigos (2025-xx) vs `rmcp` 3.8 default 2026-07-28 | `legacy_session_mode = true` no `StreamableHttpServerConfig` para servir clientes anteriores com sessão; testar com `mcp-remote`, Cursor, Claude Code. |
 | SSE (D4) | Decisão explícita antes da fase 3. |

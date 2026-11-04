@@ -29,7 +29,7 @@ Objectivo: provar as três hipóteses técnicas e deixar o workspace a compilar 
 | S1 `rmcp` server | **Feito** — `docs/spikes/S1-rmcp-principal.md`, código em `spikes/s1-rmcp-principal/`. 21 checks verdes: principal por pedido em ambos os modos de sessão, cliente `rmcp` e `mcp-remote`. Falta só smoke com Claude Code/Cursor reais (Fase 7). | Sem plano B necessário. |
 | D11 análise DB | **Feito** — `06-analise-db.md`: 4 protótipos contra as fixtures SQLite e Postgres; decisão `sqlx` nativo com `$N`. | Decisão registada em `01-produto.md`. |
 | S2 DB | **Feito** — `trunks-db` real: `Db` enum, `connect`, migrações `0001_baseline` (IF NOT EXISTS) / `0002_normalize_legacy` / `0003_entity_uniqueness` por dialecto, structs das 10 tabelas, repos de leitura + `ConfigStore`. Testes contra as fixtures SQLite e Postgres (CI com serviço `postgres:16`). `trunks start` já liga, migra e valida o modo. | Zero erros de mapeamento; segunda migração é no-op; mismatch de modo recusado. |
-| S3 OAuth | Com `wiremock` como authorization server: discovery → DCR → authorization URL com `state` nosso → troca de code → refresh. Via `rmcp::transport::auth`; se insuficiente, `oauth2` crate. | Fluxo completo em teste automático; decisão `rmcp auth` vs `oauth2` registada. |
+| S3 OAuth | **Feito** — `docs/spikes/S3-upstream-oauth.md`, código em `spikes/s3-upstream-oauth/`. 22 checks com `wiremock`: 401→discovery→DCR→URL (PKCE/state/resource)→restart→troca→uso via `AuthClient`→refresh→refresh rejeitado; cliente pré-registado; AS sem DCR. `rmcp::transport::auth` chega; sem `oauth2` directo. | Decisão: `rmcp auth`. |
 | Workspace | Cargo workspace com os 7 crates vazios, lints (`clippy -D warnings`, `rustfmt`, `cargo-deny`), `snafu` como base de erros em cada crate, CI GitHub Actions (lint, test, build linux/mac/win), `cargo dist init` com `dist-workspace.toml` (targets, instaladores), `xtask build-dashboard`, `web/dashboard` copiado e a buildar. | `cargo test` e CI verdes; `trunks --version` imprime versão; `dist plan` lista os artefactos. |
 
 ### Fase 1 — Núcleo: arranque, DB, modos, registry read-only (2 sem.)
@@ -155,7 +155,7 @@ Uma fase só fecha quando **todos** se verificam:
 |---|---|---|
 | `rmcp` quebra API numa minor | `cargo update` falha a compilar | Pin exacto; `UpstreamConn`/`GatewayHandler` isolam o SDK; actualizar só em fases de release |
 | Fase 2 derrapa (stdio lifecycle, protocolo com clientes reais) | >4 sem. | Cortar `stateful` para Fase 3; priorizar `stateless` + clientes reais |
-| OAuth consome mais que 1,5 sem. | DCR/refresh com ASs reais (GitHub, Atlassian) a falhar | Aceitar v1 com `client_id` manual obrigatório; DCR em 1.1 |
+| OAuth consome mais que 1,5 sem. | DCR/refresh com ASs reais (GitHub, Atlassian) a falhar | Mecânica validada no S3 contra um AS fake; o risco restante é a variação entre IdPs reais → smoke com 2 IdPs reais na Fase 5 |
 | Fidelidade de shapes insuficiente | Diffs recorrentes no harness | Aumentar cobertura do harness antes de continuar; é mais barato que corrigir depois |
 | Disponibilidade intermitente | Fases a arrastar sem marcos | Marcos pequenos e demonstráveis; M2 é o ponto a partir do qual já há valor mesmo que o resto pare |
 
@@ -165,4 +165,4 @@ Uma fase só fecha quando **todos** se verificam:
 2. ~~Repositório, workspace, `snafu`, `cargo dist`, CI~~ feito.
 3. ~~Fixtures legacy~~ feitas (sintéticas; regenerar com binário real quando possível).
 4. ~~Spike S1~~ feito — sem plano B.
-5. ~~Spike S2~~ feito. Spike S3 (OAuth upstream com `wiremock`).
+5. ~~Spike S3~~ feito. **Fase 0 concluída** — seguir para a Fase 1 (`03-plano.md` §3).
