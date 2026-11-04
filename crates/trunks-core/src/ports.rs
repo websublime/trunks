@@ -22,6 +22,6 @@ pub trait ConfigStore: Send + Sync + 'static {
     fn get(&self) -> impl Future<Output = Result<Option<ServerConfig>>> + Send;
 
     /// Initializes the installation in `mode`. Returns `false` when it was already initialized
-    /// (idempotent, mirrors `MCPJungle`'s `ServerConfigService.Init`).
+    /// (idempotent).
     fn init(&self, mode: ServerMode) -> impl Future<Output = Result<bool>> + Send;
 }

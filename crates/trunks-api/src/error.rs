@@ -24,7 +24,7 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// The `MCPJungle` `handleServiceError` mapping.
+/// Domain error → HTTP status mapping (see `docs/02-especificacao.md` §5).
 #[must_use]
 pub fn classify(e: &Error) -> (StatusCode, ApiErrorResponse) {
     let msg = e.to_string();
@@ -50,7 +50,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn maps_like_mcpjungle() {
+    fn maps_domain_errors_to_status_codes() {
         let (s, b) = classify(&Error::not_found("tool group"));
         assert_eq!(s, StatusCode::NOT_FOUND);
         assert!(b.error.contains("not found"));

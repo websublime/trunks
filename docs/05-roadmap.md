@@ -1,13 +1,13 @@
 # Trunks — Roadmap
 
-> Versão 1.0 (2026-11-04). Para lá da paridade com MCPJungle: web app em `line://ui`, OIDC, organizações e equipas. Prioridades, não datas. Depende de `04-plano.md` (v1.0) e actualiza `01-produto.md` (D2, D12).
+> Versão 2.0 (2026-11-04). Para lá de v1.0: web app em `line://ui`, OIDC, organizações e equipas. Prioridades, não datas. Depende de `03-plano.md` (v1.0) e de `01-produto.md` (decisões).
 
 ---
 
 ## 1. Princípios
 
-1. **Paridade primeiro, depois diferenciação.** Nada do roadmap entra antes de v1.0 estar verde na suite de conformidade. Excepção: decisões de modelo de dados que ficariam caras de mudar depois (ver §6).
-2. **`/api/v0` congelada.** O contrato MCPJungle mantém-se para sempre dentro da série 1.x e 2.x; funcionalidade nova vive em `/api/v1`. Um deployment single-tenant continua a funcionar sem saber que existem organizações.
+1. **v1.0 primeiro, depois diferenciação.** Nada do roadmap entra antes de v1.0 estar verde na suite de conformidade. Excepção: decisões de modelo de dados que ficariam caras de mudar depois (ver §6).
+2. **`/api/v0` congelada.** O contrato v0 mantém-se dentro das séries 1.x e 2.x; funcionalidade nova vive em `/api/v1`. Um deployment single-tenant continua a funcionar sem saber que existem organizações.
 3. **Identidade é uma camada, não um modo.** Tokens estáticos (v1.0), OIDC (v2.0) e, mais tarde, outros métodos produzem o mesmo `Principal`; o domínio nunca sabe como o principal foi autenticado.
 4. **Standards, não invenções.** Para MCP clients, o spec MCP 2026-07-28 já define como se faz: Trunks é um *OAuth 2.1 resource server*, o IdP é o *authorization server*. Não se inventa um protocolo de login próprio.
 5. **A web app é produto, não painel de debug.** Hoje o dashboard é dev-only e sem auth. Passa a ser a consola autenticada de operação do gateway, construída com `line://ui`.
@@ -16,7 +16,7 @@
 
 ```mermaid
 flowchart LR
-    v10["v1.0 Paridade<br/>Fases 0–7 do plano<br/>+ web app v0 (line://ui)"]
+    v10["v1.0<br/>Fases 0–7 do plano<br/>+ web app v0 (line://ui)"]
     v11["v1.x Operabilidade<br/>tokens hasheados · apply declarativo<br/>prompts/resources em grupos · audit log · multi-réplica"]
     v20["v2.0 Identidade<br/>OIDC para humanos e MCP clients<br/>Trunks como OAuth 2.1 resource server"]
     v21["v2.x Organizações & equipas<br/>orgs · teams · membros · papéis<br/>ACL por recurso, individual e por equipa"]
@@ -26,22 +26,22 @@ flowchart LR
 
 | Horizonte | Objectivo | Pergunta que responde |
 |---|---|---|
-| v1.0 | Substituir MCPJungle sem fricção | "Posso trocar o binário hoje?" |
+| v1.0 | Gateway completo, operável por CLI e web app | "Posso usar isto hoje, sozinho ou em equipa?" |
 | v1.x | Operar com confiança | "Consigo gerir isto por GitOps e dormir descansado?" |
 | v2.0 | Sem tokens estáticos | "O Cursor faz login no meu IdP e já está?" |
 | v2.x | Multi-equipa | "A equipa de dados vê os MCPs dela, a de frontend os dela, e eu vejo tudo?" |
 | v3 | Governança fina | "Quem usou que tool, com que credencial, e posso limitar?" |
 
-## 3. v1.0 — Paridade (+ web app v0)
+## 3. v1.0 (+ web app v0)
 
-Conforme `04-plano.md`, com uma alteração: a **Fase 6 deixa de embeber o dashboard React** e entrega a primeira versão da web app em `line://ui` (D2 revista).
+Conforme `03-plano.md`; a Fase 6 entrega a primeira versão da web app em `line://ui` (D2).
 
 ### 3.1 Web app v0 (`web/app`)
 - Stack: Lit + `line://ui` (`@websublime/line-*`), Vite, TypeScript. Sem framework de router pesado; `line-` components, tokens `--line-*`, dark-first como o showcase.
-- Âmbito = o que o dashboard MCPJungle faz hoje, contra a **mesma API** `/api/dashboard/*` (contrato de paridade): overview, servidores (registar incl. OAuth upstream via popup + polling, apagar, toggle), tools/prompts (toggle), tool groups (criar/apagar), resources, diagnósticos.
-- Dev-only e sem auth, como o original, porque `/api/dashboard` é assim. A auth chega em v2.0 com `/api/v1`.
+- Âmbito, contra a API `/api/dashboard/*`: overview, servidores (registar incl. OAuth upstream via popup + polling, apagar, toggle), tools/prompts (toggle), tool groups (criar/apagar), resources, diagnósticos.
+- Dev-only e sem auth em v1.0 (`/api/dashboard` é dev-only). A auth chega em v2.0 com `/api/v1`.
 - Embebida em `crates/trunks-dashboard` via `cargo xtask build-dashboard`.
-- Esforço: ~3 semanas (vs 1 para embeber React). Total v1.0 passa de ≈13,5 para ≈15,5 semanas-pessoa.
+- Esforço: ~3 semanas. Total v1.0 ≈15,5 semanas-pessoa.
 
 ### 3.2 Decisões de modelo tomadas já em v1.0 por serem baratas agora e caras depois
 - Todas as tabelas novas de Trunks (não as herdadas) usam `id` ULID/UUID em texto, não `bigint` — facilita federação/exports; as herdadas mantêm `bigint` por compat.
@@ -52,8 +52,8 @@ Conforme `04-plano.md`, com uma alteração: a **Fase 6 deixa de embeber o dashb
 | Item | Descrição | Notas |
 |---|---|---|
 | Tokens hasheados | `access_token_hash` (SHA-256) em `users`/`mcp_clients`; migração in-place; `GET /clients` deixa de devolver o token (breaking documentado; flag de compat por 1 minor) | pré-requisito de qualquer história de segurança |
-| `trunks apply -d <dir>` | Reconciliação declarativa (inverso de `export`): servidores, grupos, clients, users; `--prune`; `--dry-run` com diff | roadmap #2 do original |
-| Prompts e resources em grupos | `included_prompts`, `included_resources` no grupo; `Scope::Group` passa a filtrar os três | issue #136 do original |
+| `trunks apply -d <dir>` | Reconciliação declarativa (inverso de `export`): servidores, grupos, clients, users; `--prune`; `--dry-run` com diff | GitOps |
+| Prompts e resources em grupos | `included_prompts`, `included_resources` no grupo; `Scope::Group` passa a filtrar os três | fecha a limitação de v1 |
 | Filtro de prompts/resources na listagem | Em enterprise, `list_prompts`/`list_resources` filtram pela allow-list (hoje só tools) | fecha a inconsistência herdada |
 | `--output json` no CLI | Todas as listagens e `get` | automação |
 | Audit log v0 | Evento por chamada MCP e por mutação REST: `who, what, target, outcome, latency`, em `tracing` com target `trunks.audit` + opcional tabela `audit_events` | base para v3 |
@@ -117,7 +117,7 @@ flowchart LR
 
 - Primeira vez que um `sub` aparece: **just-in-time provisioning** cria o `user` (role `user`) — configurável (`TRUNKS_OIDC_JIT=deny|user|admin-if-claim`).
 - Role `admin` por claim (`groups` contém `trunks-admins`, ou `email` em lista) — configurável.
-- Um MCP client OIDC actua **em nome do utilizador** que fez login no Cursor: o `Principal` é o utilizador, com as permissões dele. Deixa de ser preciso criar `mcp_client` por IDE — o que o roadmap do original chama "per-client credentials" resolve-se por aqui. `mcp_clients` estáticos continuam a existir para agentes headless (`client_credentials` no IdP, ou token estático).
+- Um MCP client OIDC actua **em nome do utilizador** que fez login no Cursor: o `Principal` é o utilizador, com as permissões dele. Deixa de ser preciso criar `mcp_client` por IDE. `mcp_clients` estáticos continuam a existir para agentes headless (`client_credentials` no IdP, ou token estático).
 
 ### 5.4 Configuração
 
@@ -176,7 +176,7 @@ Semântica (decalcada do GitHub, simplificada):
 |---|---|
 | **Organização** | Namespace de servidores, grupos e clients. `owner` gere tudo; `admin` gere recursos e equipas; `member` só o que lhe for concedido. |
 | **Equipa** | Conjunto de membros da org; pode ser aninhada (uma equipa filha herda o que a mãe tem). `maintainer` gere membros. |
-| **Namespace pessoal** | Cada user tem o seu: servidores e grupos "pessoais" (como repos pessoais). O que hoje é "o registry" passa a ser o namespace `system`, gerido por admins globais, para manter paridade. |
+| **Namespace pessoal** | Cada user tem o seu: servidores e grupos "pessoais" (como repos pessoais). O que hoje é "o registry" passa a ser o namespace `system`, gerido por admins globais, para manter o comportamento de v1. |
 | **Permissão** | `(subject: team|user, resource: server|group, level: use|manage)`. `use` = descobrir e invocar; `manage` = editar/activar/apagar. Efectiva = união de todas as concessões directas e via equipas (incl. aninhadas) + papel na org. **Sem deny** na primeira versão (como o GitHub). |
 | **MCP client** | Pertence a um user (pessoal) ou a uma org. Acede ao que o dono pode, **intersectado** com a sua allow-list (nunca mais do que o dono). Clients OIDC on-behalf-of herdam o user. |
 | **Grupo** | Pode incluir tools de qualquer servidor a que o **autor** tenha `use`; um consumidor do grupo precisa de `use` no grupo **e** nos servidores subjacentes (grupo não alarga — invariante de v1 mantido). |
@@ -198,7 +198,7 @@ Modelo + migração + autorização efectiva no gateway: 3 sem. REST v1 + CLI: 2
 
 ## 7. v3 — Governança
 
-- **Credenciais upstream por identidade**: o grant OAuth do `github` MCP deixa de ser gateway-scoped e passa a ser por user (ou por org) — o utilizador autoriza uma vez na web app; o gateway escolhe a credencial pelo `Principal`. Resolve a limitação #1 do original e é o que torna orgs realmente úteis.
+- **Credenciais upstream por identidade**: o grant OAuth do `github` MCP deixa de ser gateway-scoped e passa a ser por user (ou por org) — o utilizador autoriza uma vez na web app; o gateway escolhe a credencial pelo `Principal`. É o que torna orgs realmente úteis.
 - **Policy por tool**: allow/deny de tools individuais por equipa/user (hoje a granularidade é servidor), argumentos proibidos por regex/JSON-schema, rate limits e quotas por client/org.
 - **Audit log v1**: tabela consultável, retenção, export; página na web app; `trunks audit --org x --since 1h`.
 - **SCIM 2.0**: provisionamento de users/equipas a partir do IdP.
@@ -209,7 +209,7 @@ Modelo + migração + autorização efectiva no gateway: 3 sem. REST v1 + CLI: 2
 
 ```mermaid
 flowchart TB
-    A["v1.0 paridade + web app v0"] --> B["tokens hasheados"]
+    A["v1.0 + web app v0"] --> B["tokens hasheados"]
     A --> C["apply declarativo"]
     A --> D["audit log v0"]
     B --> E["OIDC humanos (web app + CLI)"]
@@ -228,7 +228,7 @@ flowchart TB
 | # | Questão | Quando |
 |---|---|---|
 | Q1 | A web app v0 entra em v1.0 (atrasa ~2 sem.) ou sai em v1.1 com v1.0 a entregar só a API `/api/dashboard`? | Fase 5 |
-| Q2 | Licença: sem ficheiros copiados do MCPJungle, MPL-2.0 deixa de ser obrigatória. Manter MPL-2.0 ou mudar para Apache-2.0/MIT alinhado com o resto do `websublime`? (D12) | antes do primeiro release público |
+| Q2 | Licença: manter MPL-2.0 ou mudar para Apache-2.0/MIT alinhado com o resto do `websublime`? (D12) | antes do primeiro release público |
 | Q3 | IdP de referência para docs e e2e: Dex (leve, OSS) vs Keycloak (mais próximo de enterprise real). | início v2.0 |
 | Q4 | Equipas aninhadas na primeira versão ou só planas? (GitHub tem; custo real está na resolução de permissões) | início v2.x |
 | Q5 | Namespace pessoal desde v2.x ou só orgs? (pessoal implica quota/limpeza de servidores stdio por user) | início v2.x |

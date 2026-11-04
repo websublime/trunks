@@ -1,10 +1,10 @@
 //! Canonical naming rules shared by the gateway, the REST API and the CLI.
 //!
-//! Rules (verbatim from `MCPJungle`, see `internal/service/mcp/util.go`):
+//! Rules:
 //! - server names match `^[a-zA-Z0-9_-]+$`, never contain `__` and never end with `_`;
 //! - tools and prompts are exposed as `<server>__<local>`; the split is on the **first** `__`,
 //!   so a local name may itself contain `__`;
-//! - resources are exposed as `mcpj://res/<server>/<base64url-no-pad(original-uri)>`;
+//! - resources are exposed as `trunks://res/<server>/<base64url-no-pad(original-uri)>`;
 //! - tool-group names match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`.
 
 use std::fmt;
@@ -19,7 +19,7 @@ use snafu::{Snafu, ensure};
 /// Separator between a server name and the upstream entity name.
 pub const SEPARATOR: &str = "__";
 /// Prefix of every gateway-assigned resource URI.
-pub const RESOURCE_URI_PREFIX: &str = "mcpj://res/";
+pub const RESOURCE_URI_PREFIX: &str = "trunks://res/";
 
 static SERVER_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     #[allow(clippy::expect_used)]
@@ -140,7 +140,7 @@ impl<'de> Deserialize<'de> for CanonicalName {
     }
 }
 
-/// `mcpj://res/<server>/<base64(original)>` — the URI under which a resource is exposed.
+/// `trunks://res/<server>/<base64(original)>` — the URI under which a resource is exposed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ResourceUri {
     server: ServerName,
@@ -251,7 +251,6 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    // Case table transcribed from internal/service/mcp/util_test.go.
     #[test]
     fn server_name_accepts_valid_names() {
         for name in ["server_1", "server_2_multiple_underscores", "server-2", "_abc", "a"] {
@@ -304,7 +303,7 @@ mod tests {
     fn resource_uri_round_trips() {
         let server = ServerName::parse("foo_mcp").unwrap();
         let uri = ResourceUri::new(server.clone(), "file://sample.txt");
-        assert_eq!(uri.to_string(), "mcpj://res/foo_mcp/ZmlsZTovL3NhbXBsZS50eHQ");
+        assert_eq!(uri.to_string(), "trunks://res/foo_mcp/ZmlsZTovL3NhbXBsZS50eHQ");
         let parsed = ResourceUri::parse(&uri.to_string()).unwrap();
         assert_eq!(parsed, uri);
         assert_eq!(parsed.original(), "file://sample.txt");
@@ -314,12 +313,13 @@ mod tests {
     fn resource_uri_rejects_bad_inputs() {
         for uri in [
             "file://x",
-            "mcpj://res/",
-            "mcpj://res/foo",
-            "mcpj://res//ZmlsZQ",
-            "mcpj://res/foo/",
-            "mcpj://res/foo/!!!",
-            "mcpj://res/bad__name/ZmlsZQ",
+            "mcpj://res/foo_mcp/ZmlsZQ",
+            "trunks://res/",
+            "trunks://res/foo",
+            "trunks://res//ZmlsZQ",
+            "trunks://res/foo/",
+            "trunks://res/foo/!!!",
+            "trunks://res/bad__name/ZmlsZQ",
         ] {
             assert!(ResourceUri::parse(uri).is_err(), "{uri} should be invalid");
         }

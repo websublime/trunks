@@ -1,6 +1,6 @@
 //! Build version as advertised by `/metadata` and the CLI.
 
-/// The crate version, normalized to the `vX.Y.Z` form `MCPJungle` uses.
+/// The crate version, normalized to the `vX.Y.Z` form advertised by `/metadata`.
 #[must_use]
 pub fn version() -> String {
     normalize(env!("CARGO_PKG_VERSION"))
@@ -22,7 +22,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normalizes_like_mcpjungle() {
+    fn normalizes_with_v_prefix() {
         assert_eq!(normalize("0.4.2"), "v0.4.2");
         assert_eq!(normalize("v0.4.2"), "v0.4.2");
         assert_eq!(normalize("dev"), "dev");

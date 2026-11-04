@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// caller to run the upstream OAuth flow. Consumed by the CLI.
 pub const CODE_UPSTREAM_OAUTH_REQUIRED: &str = "upstream_oauth_required";
 
-/// Error messages that clients and tests depend on. Keep them byte-identical to `MCPJungle`.
+/// Error messages that clients and tests depend on. They are part of the API contract.
 pub mod messages {
     pub const SERVER_NOT_INITIALIZED: &str = "server is not initialized";
     pub const SERVER_ALREADY_INITIALIZED: &str = "Server is already initialized";

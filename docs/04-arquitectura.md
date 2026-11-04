@@ -1,6 +1,6 @@
 # Trunks — Documento de Arquitectura
 
-> Versão 1.1 (2026-11-04). Complementa `02-especificacao.md` (que detalha contratos e módulos); este documento dá as **vistas** — contexto, contentores, componentes, runtime, dados, deployment — e regista as decisões arquitecturais. Diagramas em Mermaid (renderizam no GitHub e no VS Code).
+> Versão 2.0 (2026-11-04). Complementa `02-especificacao.md` (que detalha contratos e módulos); este documento dá as **vistas** — contexto, contentores, componentes, runtime, dados, deployment — e regista as decisões arquitecturais. Diagramas em Mermaid (renderizam no GitHub e no VS Code).
 > Estrutura inspirada em C4 + arc42, sem cerimónia.
 
 ---
@@ -9,7 +9,7 @@
 
 | Objectivo | Como se reflecte na arquitectura |
 |---|---|
-| Paridade de contrato com MCPJungle (REST, CLI, DB) | Camada `trunks-types` isola os shapes JSON; `trunks-db` abre o schema GORM tal como está |
+| Contratos estáveis (REST, CLI, DB) | Camada `trunks-types` isola os shapes JSON; `trunks-db` isola o schema |
 | Um só binário, um só processo | `trunks start` liga tudo; CLI é cliente HTTP do mesmo binário |
 | Fail-closed por construção | Autorização é um tipo (`Principal`) que o handler recebe obrigatoriamente, não um valor opcional num contexto |
 | Baixo custo operacional | Sem GC, arranque < 500 ms, catálogo em memória, DB só para mutações e arranque |
@@ -168,7 +168,7 @@ sequenceDiagram
     participant S as SessionManager
     participant H as axum
 
-    M->>C: dotenv + flags + env → Settings (mode, db, ports, timeouts)
+    M->>C: dotenv + flags + TRUNKS_* → Settings (mode, db, ports, timeouts)
     M->>D: connect(Settings.db)
     D->>D: run migrations (baseline IF NOT EXISTS, aditivas)
     M->>D: read server_configs
@@ -211,7 +211,7 @@ sequenceDiagram
     opt force && exists
         R->>R: deregister(name)
     end
-    R->>U: connect(config, timeout=INIT_REQ_TIMEOUT)
+    R->>U: connect(config, timeout=TRUNKS_UPSTREAM_INIT_TIMEOUT_SEC)
     U->>UP: initialize
     UP-->>U: capabilities
     R->>UP: tools/list (obrigatório)
@@ -328,7 +328,7 @@ stateDiagram-v2
     InUse --> Ready: release() ok · last_used = now
     InUse --> Unhealthy: release() c/ erro de transporte
     Unhealthy --> Empty: drop conn (próximo acquire reconecta)
-    Ready --> Empty: idle sweeper (now − last_used > SESSION_IDLE_TIMEOUT)
+    Ready --> Empty: idle sweeper (now − last_used > TRUNKS_SESSION_IDLE_TIMEOUT_SEC)
     Ready --> Empty: deregister(server) · shutdown
     InUse --> Empty: shutdown (cancel token)
 ```
@@ -388,7 +388,7 @@ erDiagram
     RESOURCES {
         bigint id PK
         bigint server_id FK
-        text uri UK "mcpj://res/<server>/<b64>"
+        text uri UK "trunks://res/<server>/<b64>"
         text original_uri
         text name
         bool enabled
@@ -444,8 +444,8 @@ erDiagram
 ```
 
 Notas:
-- `TOOL_GROUPS` referencia tools/servidores **por nome** em JSON, não por FK — é assim no original e permite grupos "degradados" que sobrevivem a deregistos.
-- `deleted_at` existe em todas as tabelas (herança GORM). Trunks faz hard-delete e filtra `deleted_at IS NULL` nas leituras para ignorar lixo de versões antigas.
+- `TOOL_GROUPS` referencia tools/servidores **por nome** em JSON, não por FK — permite grupos "degradados" que sobrevivem a deregistos.
+- `deleted_at` existe em todas as tabelas (herança do schema legacy). Trunks faz hard-delete e filtra `deleted_at IS NULL` nas leituras para ignorar lixo de versões antigas.
 - Estado em memória derivado da DB: `CatalogSnapshot` (tudo o que é `enabled`) e `GroupView` (effective tools pré-resolvidas). Reconstruído por inteiro após cada mutação.
 
 ```mermaid
@@ -468,7 +468,7 @@ flowchart LR
 flowchart TB
     subgraph host["Máquina do developer"]
         subgraph compose["docker compose"]
-            t["trunks:latest-stdio<br/>:8080 · SERVER_MODE=development<br/>node20 + uv para upstreams stdio"]
+            t["trunks:latest-stdio<br/>:8080 · TRUNKS_MODE=development<br/>node20 + uv para upstreams stdio"]
             pg[("postgres:17")]
             t --> pg
         end
@@ -496,7 +496,7 @@ flowchart TB
     t1 & t2 -- "https" --> remote["upstreams remotos"]
 ```
 
-Limites conhecidos para N > 1 réplicas (herdados do original, a resolver pós-v1):
+Limites conhecidos para N > 1 réplicas (a resolver pós-v1):
 - Sessões **stateful** são por processo; com várias réplicas sem sticky sessions cada réplica tem a sua.
 - O `Catalog` é reconstruído pela réplica que fez a mutação; as outras só o vêem no próximo arranque. Mitigação simples na v1.x: `LISTEN/NOTIFY` em Postgres ou um TTL de refresh configurável. Até lá, enterprise com 1 réplica, como o original.
 - Sessões downstream em `legacy_session_mode` do `rmcp` são em memória; `StreamableHttpServerConfig.session_store` permite externalizar quando for preciso.
@@ -551,17 +551,17 @@ Propriedade central: `UpstreamConn::connect(config)` não recebe o pedido downst
 
 | ADR | Decisão | Alternativa rejeitada | Motivo |
 |---|---|---|---|
-| A1 | Um `GatewayHandler` parametrizado por `Scope` sobre um `Catalog` partilhado | N servidores MCP (um por grupo) com registo próprio, como o original | Elimina callbacks de sincronização e duplicação de estado; grupos passam a ser vistas |
+| A1 | Um `GatewayHandler` parametrizado por `Scope` sobre um `Catalog` partilhado | N servidores MCP (um por grupo) com registo próprio | Elimina callbacks de sincronização e duplicação de estado; grupos passam a ser vistas |
 | A2 | `Catalog` em `ArcSwap`, rebuild total por mutação | Cache por entidade com invalidação fina; ou DB por pedido | Mutações são raras e o conjunto é pequeno; rebuild total é trivialmente correcto |
 | A3 | `Principal` tipado em `Parts.extensions` → `RequestContext` | Contexto dinâmico (`ctx.Value`) | Fail-closed por tipo; sem panics; testável sem HTTP |
-| A4 | Lock por servidor no `SessionManager` | Lock global (original) | Um upstream lento não bloqueia os outros |
+| A4 | Lock por servidor no `SessionManager` | Lock global | Um upstream lento não bloqueia os outros |
 | A5 | Ports (traits) no domínio, repos em `trunks-db` | Domínio a chamar SQL directamente | Testes de domínio com stores em memória; D11 pode mudar a lib sem tocar no domínio |
 | A6 | SQL explícito, sem ORM (D11) | sea-orm / diesel | Decisão do produto; controlo do SQL em dois dialectos; schema é pequeno (10 tabelas) |
 | A7 | `snafu` com um `Error` por crate (D10) | `thiserror` + `anyhow` | Context selectors obrigam a classificar erros na fronteira de cada camada |
 | A8 | Sem SSE (D4) | Implementar SSE à mão | Deprecado no spec; `rmcp` não o tem; custo sem retorno |
-| A9 | Web app em Lit + `line://ui`, embebida no binário (D2) | Copiar o dashboard React do original; Rust/WASM | Design system próprio; a app cresce para consola autenticada (OIDC, orgs) e o React copiado seria descartado; sem ficheiros MPL copiados |
-| A10 | `cargo-dist` para release (D9) | goreleaser-like à mão com Actions | Padrão do ecossistema; Homebrew, instaladores e checksums incluídos |
-| A11 | `prometheus-client` directo, sem OTel SDK | OTel SDK + exporter Prometheus (como o original) | O original não exporta OTLP; OTel só adiciona peso. Reavaliar se OTLP entrar no roadmap |
+| A9 | Web app em Lit + `line://ui`, embebida no binário (D2) | React; Rust/WASM | Design system próprio; a app cresce para consola autenticada (OIDC, orgs) |
+| A10 | `cargo-dist` para release (D9) | pipeline à mão com Actions | Padrão do ecossistema; Homebrew, instaladores e checksums incluídos |
+| A11 | `prometheus-client` directo, sem OTel SDK | OTel SDK + exporter Prometheus | Sem OTLP em v1, OTel só adiciona peso; reavaliar quando OTLP entrar (v3) |
 | A12 | Rust 2024, `clippy::unwrap_used` em `core`/`api` | — | Sem panics em request path |
 
 ## 10. Mapa para a especificação

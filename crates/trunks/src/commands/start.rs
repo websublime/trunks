@@ -9,32 +9,31 @@ use clap::Args as ClapArgs;
 use snafu::{ResultExt, Whatever};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
+use trunks_types::ServerMode;
 
 #[derive(Debug, ClapArgs)]
 pub struct Args {
     /// Port to listen on
-    #[arg(long, env = "PORT", default_value_t = 8080)]
+    #[arg(long, env = "TRUNKS_PORT", default_value_t = 8080)]
     port: u16,
 
     /// Host to bind to (empty = all interfaces)
-    #[arg(long, env = "MCPJUNGLE_BIND_HOST", default_value = "")]
+    #[arg(long, env = "TRUNKS_BIND_HOST", default_value = "")]
     host: String,
 
-    /// Run in enterprise mode
-    #[arg(long)]
-    enterprise: bool,
+    /// Operating mode: development | enterprise
+    #[arg(long, env = "TRUNKS_MODE", default_value = "development", value_parser = parse_mode)]
+    mode: ServerMode,
+}
 
-    /// [DEPRECATED] Alias for --enterprise
-    #[arg(long, hide = true)]
-    prod: bool,
+fn parse_mode(s: &str) -> Result<ServerMode, String> {
+    ServerMode::parse_lenient(s)
+        .ok_or_else(|| format!("invalid mode '{s}': expected development or enterprise"))
 }
 
 pub async fn run(args: Args) -> Result<(), Whatever> {
     init_tracing();
-    if args.prod {
-        tracing::warn!("--prod is deprecated; use --enterprise");
-    }
-
+    tracing::info!(mode = %args.mode, "starting");
     let host = if args.host.is_empty() { "0.0.0.0" } else { args.host.as_str() };
     let addr: SocketAddr =
         format!("{host}:{}", args.port).parse().whatever_context("invalid bind address")?;
@@ -54,7 +53,9 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
 }
 
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_env("TRUNKS_LOG")
+        .or_else(|_| EnvFilter::try_from_default_env())
+        .unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 

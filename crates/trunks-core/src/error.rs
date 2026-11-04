@@ -1,8 +1,7 @@
 //! Domain error type.
 //!
-//! Variants mirror the classification `MCPJungle` encodes with sentinel errors
-//! (`apierrors.ErrNotFound`, `apierrors.ErrInvalidInput`, ...). The HTTP layer
-//! maps them to status codes; nothing here knows about HTTP.
+//! Variants classify failures the way the HTTP layer needs to map them to
+//! status codes; nothing here knows about HTTP.
 
 use snafu::Snafu;
 

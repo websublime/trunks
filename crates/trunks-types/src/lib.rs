@@ -2,9 +2,9 @@
 
 //! Shared, dependency-light contracts for Trunks.
 //!
-//! Everything here is wire-compatible with `MCPJungle` 0.4.x: JSON field names,
-//! enum spellings and the canonical naming rules are part of the public contract
-//! (see `docs/03-migracao.md`).
+//! JSON field names, enum spellings and the canonical naming rules are part of
+//! the public contract (see `docs/02-especificacao.md`) and must not change
+//! within a major version.
 
 pub mod enums;
 pub mod error;

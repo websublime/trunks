@@ -1,16 +1,17 @@
 # Trunks — agent guide
 
-Trunks is a self-hosted MCP gateway and registry in Rust, a rewrite of MCPJungle (Go) with
-drop-in compatibility as the v1 goal. Read `docs/` before non-trivial changes:
-`01-produto.md` (decisions D1–D12), `02-especificacao.md` (contracts and modules),
-`03-migracao.md` (what must stay byte-compatible), `04-plano.md` (phases), `05-arquitectura.md`.
+Trunks is a self-hosted MCP gateway and registry in Rust. Read `docs/` before non-trivial
+changes: `01-produto.md` (decisions D1–D12), `02-especificacao.md` (contracts and modules),
+`03-plano.md` (phases), `04-arquitectura.md`, `05-roadmap.md`.
 Explicit task instructions take precedence over this file.
 
 ## Principles
 
 - **Contract first.** REST paths, JSON shapes, error messages, CLI flags and output strings, and
-  the database schema are compatible with MCPJungle 0.4.x unless `docs/03-migracao.md` §7 lists
-  the difference. When in doubt, read the Go source at the pinned commit (`49bf232`) and its tests.
+  the database schema are stable within a major version and specified in `docs/02-especificacao.md`.
+  Change the spec in the same PR as the code.
+- **Own names only.** Env vars are `TRUNKS_*`, the resource URI scheme is `trunks://`, config lives
+  in `~/.config/trunks/`. No aliases for other products' names.
 - **Fail closed.** Authorization is carried by a typed `Principal`; a missing principal in
   enterprise mode yields empty lists and denied calls, never a panic.
 - **Secrets never leak.** Tokens, bearer headers, stdio `env` values and OAuth secrets live in
@@ -32,7 +33,7 @@ Explicit task instructions take precedence over this file.
 | `crates/trunks` | The binary: `start` (server) and management subcommands |
 | `web/app` | Web application built with `line://ui` |
 | `xtask` | `cargo xtask build-dashboard`, `cargo xtask ci` |
-| `tests/` | Conformance fixtures (MCPJungle-generated DBs) and black-box tests |
+| `tests/` | Conformance fixtures (legacy-format DBs) and black-box tests |
 
 Dependency rules: `types ← core ← {db, api}`; `client` depends only on `types`; only the binary
 crate knows every crate. `trunks-core` must not import axum, the DB driver or clap; `rmcp` is
@@ -49,8 +50,8 @@ imported only from its `gateway` and `upstream` modules.
 - Strings that clients depend on live in `trunks_types::error::messages`, not inline.
 - Keep functions `async` and `&self`; share state through `Arc` + `ArcSwap`/`DashMap`, no global
   mutable state.
-- Tests: transcribe MCPJungle's test case tables rather than its test structure; add a conformance
-  test whenever a route or CLI command is added.
+- Tests: table-driven cases for parsing/validation; add a conformance test whenever a route or
+  CLI command is added.
 
 ## Commands
 

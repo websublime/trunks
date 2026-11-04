@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Transport used to reach an upstream MCP server.
 ///
-/// `Sse` is kept only so that rows written by `MCPJungle` can be deserialized;
+/// `Sse` is kept only so that legacy rows can be deserialized;
 /// Trunks does not connect to SSE upstreams (decision D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -87,8 +87,7 @@ impl fmt::Display for Role {
     }
 }
 
-/// Operating mode of the server. `production` is accepted on input as a
-/// deprecated alias of `enterprise` and is never written back.
+/// Operating mode of the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServerMode {
@@ -111,12 +110,12 @@ impl ServerMode {
         matches!(self, Self::Enterprise)
     }
 
-    /// Case-insensitive parse accepting the legacy `production` alias.
+    /// Case-insensitive parse.
     #[must_use]
     pub fn parse_lenient(s: &str) -> Option<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
             "development" => Some(Self::Development),
-            "enterprise" | "production" => Some(Self::Enterprise),
+            "enterprise" => Some(Self::Enterprise),
             _ => None,
         }
     }
@@ -133,7 +132,7 @@ impl<'de> Deserialize<'de> for ServerMode {
         let s = String::deserialize(d)?;
         Self::parse_lenient(&s).ok_or_else(|| {
             serde::de::Error::custom(format!(
-                "invalid server mode '{s}': expected development, enterprise or production"
+                "invalid server mode '{s}': expected development or enterprise"
             ))
         })
     }
@@ -144,12 +143,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn server_mode_accepts_production_alias() {
-        assert_eq!(ServerMode::parse_lenient("PRODUCTION"), Some(ServerMode::Enterprise));
+    fn server_mode_parses_case_insensitively() {
+        assert_eq!(ServerMode::parse_lenient("ENTERPRISE"), Some(ServerMode::Enterprise));
         assert_eq!(ServerMode::parse_lenient("Development"), Some(ServerMode::Development));
+        assert_eq!(ServerMode::parse_lenient("production"), None);
         assert_eq!(ServerMode::parse_lenient("staging"), None);
-        let m: ServerMode = serde_json::from_str("\"production\"").unwrap();
-        assert_eq!(m, ServerMode::Enterprise);
+        let m: ServerMode = serde_json::from_str("\"enterprise\"").unwrap();
         assert_eq!(serde_json::to_string(&m).unwrap(), "\"enterprise\"");
     }
 

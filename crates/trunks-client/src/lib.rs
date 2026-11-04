@@ -2,8 +2,8 @@
 
 //! HTTP client for the Trunks management REST API (`/api/v0`).
 //!
-//! Wire-compatible with `MCPJungle`'s `client` package. Only `/metadata` exists in
-//! this phase; the rest of the surface is added alongside each API handler.
+//! Only `/metadata` exists in this phase; the rest of the surface is added
+//! alongside each API handler.
 
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
