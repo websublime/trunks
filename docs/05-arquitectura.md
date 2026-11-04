@@ -1,6 +1,6 @@
 # Trunks — Documento de Arquitectura
 
-> Versão 1.0 (2026-11-03). Complementa `02-especificacao.md` (que detalha contratos e módulos); este documento dá as **vistas** — contexto, contentores, componentes, runtime, dados, deployment — e regista as decisões arquitecturais. Diagramas em Mermaid (renderizam no GitHub e no VS Code).
+> Versão 1.1 (2026-11-04). Complementa `02-especificacao.md` (que detalha contratos e módulos); este documento dá as **vistas** — contexto, contentores, componentes, runtime, dados, deployment — e regista as decisões arquitecturais. Diagramas em Mermaid (renderizam no GitHub e no VS Code).
 > Estrutura inspirada em C4 + arc42, sem cerimónia.
 
 ---
@@ -16,7 +16,7 @@
 | Isolamento do SDK MCP | `rmcp` só é visível em `trunks-core::gateway` e `trunks-core::upstream`; o resto do domínio não o importa |
 | Sem ORM (D11) | Repositórios com SQL explícito atrás de traits; o domínio nunca vê a lib de DB |
 
-Restrições: Rust stable; `rmcp` 3.8 (spec MCP 2026-07-28, sem SSE); dois dialectos SQL (SQLite/Postgres); dashboard React mantido tal como está.
+Restrições: Rust stable; `rmcp` 3.8 (spec MCP 2026-07-28, sem SSE); dois dialectos SQL (SQLite/Postgres); web app em `line://ui` (D2).
 
 ## 2. Vista de contexto (C4 nível 1)
 
@@ -66,7 +66,7 @@ flowchart TB
         core["Domínio<br/>registry · catalog · gateway · sessions · oauth · identity · groups"]
         dbl["Camada de dados<br/>(SQL explícito, migrações)"]
         up["Upstream connections<br/>(rmcp client: child-process, streamable-http)"]
-        spa["Dashboard SPA embebido<br/>(rust-embed, só dev)"]
+        spa["Web app embebida (line://ui)<br/>(rust-embed, só dev em v1.0)"]
         met["/metrics (prometheus-client)"]
         http --> rest & mcp & spa & met
         rest --> core
@@ -89,7 +89,7 @@ flowchart TB
 | Domínio | `trunks-core` | regras de negócio, autorização, catálogo | `Catalog` (ArcSwap), `SessionManager` (DashMap) |
 | Camada de dados | `trunks-db` | SQL, migrações, dois dialectos | — |
 | Upstream connections | `rmcp` client | ligações stdio/http, OAuth client | processos filhos, ligações HTTP |
-| Dashboard SPA | React (inalterado) | UI dev-only | browser |
+| Web app | Lit + `line://ui` | UI dev-only em v1.0; consola autenticada a partir de v2.0 | browser |
 | CLI | clap + `trunks-client` | gestão via REST | `~/.trunks.conf` |
 
 ## 4. Vista de componentes (C4 nível 3) — crates e módulos
@@ -559,7 +559,7 @@ Propriedade central: `UpstreamConn::connect(config)` não recebe o pedido downst
 | A6 | SQL explícito, sem ORM (D11) | sea-orm / diesel | Decisão do produto; controlo do SQL em dois dialectos; schema é pequeno (10 tabelas) |
 | A7 | `snafu` com um `Error` por crate (D10) | `thiserror` + `anyhow` | Context selectors obrigam a classificar erros na fronteira de cada camada |
 | A8 | Sem SSE (D4) | Implementar SSE à mão | Deprecado no spec; `rmcp` não o tem; custo sem retorno |
-| A9 | Dashboard React mantido e embebido (D2) | Reescrever em Rust/WASM | Zero valor na reescrita; contrato `/api/dashboard` é o que importa |
+| A9 | Web app em Lit + `line://ui`, embebida no binário (D2) | Copiar o dashboard React do original; Rust/WASM | Design system próprio; a app cresce para consola autenticada (OIDC, orgs) e o React copiado seria descartado; sem ficheiros MPL copiados |
 | A10 | `cargo-dist` para release (D9) | goreleaser-like à mão com Actions | Padrão do ecossistema; Homebrew, instaladores e checksums incluídos |
 | A11 | `prometheus-client` directo, sem OTel SDK | OTel SDK + exporter Prometheus (como o original) | O original não exporta OTLP; OTel só adiciona peso. Reavaliar se OTLP entrar no roadmap |
 | A12 | Rust 2024, `clippy::unwrap_used` em `core`/`api` | — | Sem panics em request path |

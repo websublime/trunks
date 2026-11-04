@@ -24,6 +24,7 @@ declarative configuration. See the roadmap in `docs/`.
 | [`docs/03-migracao.md`](docs/03-migracao.md) | Go → Rust mapping, contracts to preserve, operator migration guide |
 | [`docs/04-plano.md`](docs/04-plano.md) | Execution plan: phases, milestones, definition of done |
 | [`docs/05-arquitectura.md`](docs/05-arquitectura.md) | Architecture views (C4, sequences, data, deployment) and ADRs |
+| [`docs/06-roadmap.md`](docs/06-roadmap.md) | Beyond parity: `line://ui` web app, OIDC, organisations and teams, governance |
 
 Documents are written in Portuguese (pt-PT) with English technical terms.
 

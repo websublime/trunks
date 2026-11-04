@@ -1,7 +1,7 @@
 # Trunks — Documento de Produto
 
 > Reescrita em Rust do [MCPJungle](https://github.com/mcpjungle/mcpjungle) (Go, v0.4.x, licença MPL-2.0).
-> Nome: **Trunks**. Versão deste documento: 1.1 (2026-11-03).
+> Nome: **Trunks**. Versão deste documento: 1.2 (2026-11-04).
 > Base analisada: commit `49bf232` de 2026-11-03.
 
 ---
@@ -118,8 +118,8 @@ As sessões stateful são **por servidor**, não por cliente downstream.
 - CRUD de users e MCP clients; tokens gerados (32 bytes, base64url) ou fornecidos (≥8 chars, sem whitespace); token lido de env ou ficheiro em configs JSON.
 - Allow-lists aplicadas na listagem de tools e em **toda** invocação (tools, prompts, resources), nos endpoints global e de grupo.
 
-### 5.5 Dashboard (development)
-UI React embebida no binário: overview, servidores (registar incl. OAuth via popup+polling, apagar, toggle), tools/prompts (toggle), tool groups (criar/apagar), resources, diagnósticos. API própria em `/api/dashboard/*`, só leitura de sumários **sanitizados** (nunca expõe tokens, valores de env, secrets OAuth).
+### 5.5 Web app (development)
+Web app em `line://ui` embebida no binário (paridade funcional com o dashboard do original): overview, servidores (registar incl. OAuth via popup+polling, apagar, toggle), tools/prompts (toggle), tool groups (criar/apagar), resources, diagnósticos. API própria em `/api/dashboard/*`, só leitura de sumários **sanitizados** (nunca expõe tokens, valores de env, secrets OAuth).
 
 ### 5.6 Operação
 - Binário único: `start` corre o servidor; o resto é CLI cliente da REST API.
@@ -157,7 +157,7 @@ Contra-argumentos que devem ficar registados: o original está activo e a recebe
 | # | Decisão | Estado |
 |---|---|---|
 | D1 | **Nome: Trunks.** Binário `trunks`, crates `trunks-*`, env `TRUNKS_*`, config `~/.trunks.conf`. Nota: existe um crate `trunks` no crates.io (lib de load testing, sem binário); não publicamos a raiz no crates.io — distribuição é por `cargo-dist` (GitHub Releases, Homebrew, Docker) — e os crates publicáveis usam prefixo `trunks-`. | **Fechada** |
-| D2 | **Dashboard React/TypeScript mantém-se** tal como está e é embebido no binário Rust. Reescrever UI em Rust não acrescenta valor. | Proposto |
+| D2 | **Web app reescrita com `line://ui`** (Lit + Zag.js Web Components, `@websublime/line-*`). O dashboard React do MCPJungle **não** é copiado. v1.0 entrega a web app v0 contra a API `/api/dashboard` (paridade); a partir de v2.0 torna-se a consola autenticada (ver `06-roadmap.md`). | **Fechada** |
 | D3 | **Compatibilidade de REST API, CLI e schema de DB** com MCPJungle 0.4.x: um utilizador aponta Trunks à DB existente e os clientes/CLIs/dashboards continuam a funcionar. Isto é a estratégia de migração principal. | Proposto |
 | D4 | **SSE legacy não é suportado.** `rmcp` 3.x não tem SSE e o spec deprecou-o. Trunks não expõe `/sse`/`/message` nem liga a upstreams `sse`; arranque falha com erro accionável se a DB tiver servidores `sse` activos (override `TRUNKS_IGNORE_SSE_SERVERS=1`), com documentação de migração para `streamable_http`. | **Fechada** |
 | D5 | **Quirk SSE/non-SSE do original não é preservado.** Irrelevante dado D4. | Fechada |
@@ -167,7 +167,7 @@ Contra-argumentos que devem ficar registados: o original está activo e a recebe
 | D9 | **Distribuição com `cargo-dist`** (binários multi-plataforma, archives, checksums, Homebrew tap, instaladores shell/PowerShell). Docker via GitHub Actions. | **Fechada** |
 | D10 | **Erros com `snafu`** em todos os crates (context selectors, `Whatever` no binário, `ensure!`), sem `thiserror`/`anyhow`. | **Fechada** |
 | D11 | **Acesso a dados sem ORM.** sea-orm/diesel excluídos. A lib concreta (sqlx com SQL manual vs. sqlx + `sea-query` como query builder vs. drivers nativos) é decidida numa análise dedicada antes da Fase 1. | **Em análise** |
-| D12 | **Licença: MPL-2.0** para o repositório inteiro. O original é MPL-2.0 e o `web/dashboard` é copiado sem alterações, logo esses ficheiros têm de permanecer MPL-2.0 com atribuição; licenciar o resto igual evita um repo com duas licenças. Reavaliável para o código Rust (Apache/MIT) se se quiser, mantendo MPL-2.0 no dashboard. | Proposto |
+| D12 | **Licença: MPL-2.0** (provisória). O original é MPL-2.0; com D2 revista já não há ficheiros copiados, logo a licença é livre — manter MPL-2.0 ou alinhar com o resto do `websublime` (Apache-2.0/MIT) decide-se antes do primeiro release público (Q2 do roadmap). | Em aberto |
 
 ## 9. Critérios de sucesso
 
@@ -184,4 +184,4 @@ Contra-argumentos que devem ficar registados: o original está activo e a recebe
 - SDK Rust MCP: https://docs.rs/rmcp (3.8.0, 2026-10-26)
 - Spec MCP: https://modelcontextprotocol.io/specification/2026-07-28
 
-Documentos relacionados neste projecto: `02-especificacao.md`, `03-migracao.md`, `04-plano.md`.
+Documentos relacionados neste projecto: `02-especificacao.md`, `03-migracao.md`, `04-plano.md`, `05-arquitectura.md`, `06-roadmap.md`.

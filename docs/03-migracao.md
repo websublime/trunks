@@ -1,6 +1,6 @@
 # Trunks — Documento de Migração (MCPJungle Go → Trunks Rust)
 
-> Versão 1.1 (2026-11-03). Base: `mcpjungle/mcpjungle@49bf232`.
+> Versão 1.2 (2026-11-04). Base: `mcpjungle/mcpjungle@49bf232`.
 > Dois públicos: (1) quem **implementa** o rewrite — mapeamento pacote-a-pacote e contratos a preservar; (2) quem **opera** um MCPJungle e vai trocar para Trunks — §6.
 
 ---
@@ -10,7 +10,7 @@
 1. **Contrato antes de código.** Para cada área, porta-se primeiro o teste (Go → Rust/conformidade) e só depois a implementação. O original tem 17.6k linhas de testes; são a especificação executável.
 2. **Compatibilidade de wire e de dados é não-negociável na v1** (REST, CLI, DB). Melhorias internas são livres.
 3. **Dívida técnica conhecida resolve-se de raiz**, mas cada correcção que altera comportamento observável é listada em §7 e assinalada no changelog.
-4. **Não se porta linha a linha.** Onde a arquitectura Rust é diferente (um handler em vez de quatro proxies, catálogo em memória), porta-se o comportamento, não a estrutura.
+4. **Não se porta linha a linha.** Onde a arquitectura Rust é diferente (um handler em vez de quatro proxies, catálogo em memória), porta-se o comportamento, não a estrutura. A web app segue o mesmo princípio: mesmos ecrãs e mesma API, código novo.
 
 ## 2. Mapeamento de pacotes
 
@@ -44,7 +44,7 @@
 | `pkg/util/DiffTools` | 50 | `trunks-core::groups::diff` | |
 | `pkg/version/` | 50 | `trunks-types::version` | `NormalizeVersion` prefixa `v` |
 | `pkg/testhelpers/`, `internal/e2e/`, `scripts/*.sh` | ~3k | `tests/conformance` | ver §8 |
-| `web/dashboard/` | 2.2k TS | `web/dashboard/` | **copiar sem alterações** |
+| `web/dashboard/` | 2.2k TS | `web/app/` | **não copiar** — reescrita em Lit + `line://ui` contra a mesma API `/api/dashboard` (D2) |
 
 ## 3. Contrato REST — shapes a preservar
 

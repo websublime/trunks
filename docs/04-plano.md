@@ -1,6 +1,6 @@
 # Trunks — Plano de Execução
 
-> Versão 1.1 (2026-11-03). Depende de `01-produto.md` (decisões), `02-especificacao.md` (arquitectura) e `03-migracao.md` (contratos e testes de paridade).
+> Versão 1.2 (2026-11-04). Depende de `01-produto.md` (decisões), `02-especificacao.md` (arquitectura) e `03-migracao.md` (contratos e testes de paridade).
 
 ---
 
@@ -9,7 +9,7 @@
 - Um engenheiro (Miguel) a tempo parcial, com apoio de agentes de código. Estimativas em **semanas-pessoa de trabalho efectivo**, não em calendário; multiplicar pelo factor de disponibilidade real.
 - Rust stable, `rmcp` 3.8 pinado. Se um spike falhar, o plano B correspondente da spec §14 substitui o item sem alterar as fases.
 - Decisões D1 (nome: Trunks), D4 (sem SSE), D9 (`cargo-dist`) e D10 (`snafu`) estão fechadas. D11 (lib de acesso a dados, sem ORM) fecha-se na Fase 0 e condiciona o Spike S2.
-- O dashboard React é copiado tal como está; só se toca em `api.ts` se um shape mudar (não deve).
+- A web app é reescrita com `line://ui` (D2); o dashboard React do original não é copiado. Roadmap pós-v1.0 em `06-roadmap.md`.
 
 ## 2. Princípios de sequenciação
 
@@ -82,11 +82,13 @@ Objectivo: fluxo principal completo em modo development.
 - CLI `register`: listener loopback, abrir browser, esperar callback, `complete`; erro claro quando o redirect é fornecido pelo utilizador.
 - Testes: `upstream_oauth_test` (wiremock), e2e `oauth_registration_test`, `force=true` com OAuth.
 
-### Fase 6 — Dashboard (1 sem.)
+### Fase 6 — Dashboard API + web app v0 em `line://ui` (3 sem.)
 
-- `trunks-dashboard` (rust-embed), rotas estáticas dev-only.
-- `trunks-core::dashboard` shaping sanitizado; `/api/dashboard/*` completo incl. `POST /servers` com retry OAuth usando `/api/dashboard/oauth/callback`, página HTML de callback, cache de resultados 10 min, `GET /oauth/session/{id}`.
-- Testes: e2e `dashboard_test` (nunca vaza segredos; 404 em enterprise; toggles reflectem em `/mcp`).
+- `trunks-core::dashboard` shaping sanitizado; `/api/dashboard/*` completo incl. `POST /servers` com retry OAuth usando `/api/dashboard/oauth/callback`, página HTML de callback, cache de resultados 10 min, `GET /oauth/session/{id}`. (1 sem.)
+- `web/app`: Lit + `line://ui` + Vite/TS; ecrãs com paridade funcional com o dashboard do original — overview, servidores (registar incl. OAuth upstream via popup + polling, apagar, toggle), tools/prompts (toggle), tool groups (criar/apagar), resources, diagnósticos. Dark-first, `line-` components, tokens `--line-*`. (2 sem.)
+- `trunks-dashboard` (rust-embed) + `cargo xtask build-dashboard`; rotas estáticas dev-only.
+- Testes: e2e `dashboard_test` portado (nunca vaza segredos; 404 em enterprise; toggles reflectem em `/mcp`); smoke da web app com Playwright contra o binário.
+- Q1 do roadmap: se v1.0 precisar de sair mais cedo, a web app v0 desliza para v1.1 e a fase entrega só a API.
 
 ### Fase 7 — Paridade final, hardening e release v1.0 (2 sem.)
 
@@ -99,7 +101,9 @@ Objectivo: fluxo principal completo em modo development.
 
 **Saída:** v1.0 — paridade declarada com MCPJungle 0.4.x menos SSE.
 
-### Fase 8 — Pós-paridade (backlog priorizado, não estimado)
+### Fase 8 — Pós-paridade
+
+Movido para `06-roadmap.md` (v1.x operabilidade, v2.0 OIDC, v2.x organizações e equipas, v3 governança). Resumo:
 
 1. Tokens hasheados (`access_token_hash`, migração in-place, flag de compat para leitura dupla durante a transição).
 2. `trunks apply -d <dir>` — reconciliação declarativa (inverso de `export`); roadmap #2 do original.
@@ -120,10 +124,10 @@ Objectivo: fluxo principal completo em modo development.
 | 3 Enterprise | 1,5 | 8 | M3: auth + ACL |
 | 4 Grupos | 1 | 9 | M4 |
 | 5 OAuth | 1,5 | 10,5 | M5 |
-| 6 Dashboard | 1 | 11,5 | M6: feature-complete |
-| 7 Release | 2 | 13,5 | **v1.0** |
+| 6 Dashboard API + web app v0 | 3 | 13,5 | M6: feature-complete |
+| 7 Release | 2 | 15,5 | **v1.0** |
 
-≈ 13–14 semanas-pessoa. Com disponibilidade de ~40 %, aponta para ~8 meses de calendário; com 100 %, ~3,5 meses. O risco de derrapagem concentra-se nas fases 2 e 5.
+≈ 15–16 semanas-pessoa. Com disponibilidade de ~40 %, aponta para ~9 meses de calendário; com 100 %, ~4 meses. O risco de derrapagem concentra-se nas fases 2 e 5.
 
 Dependências entre fases: 0 → 1 → 2 → {3, 4, 5, 6 em qualquer ordem, mas 3 antes de 4 para testar "grupo não alarga ACL"} → 7.
 

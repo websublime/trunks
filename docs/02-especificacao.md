@@ -1,6 +1,6 @@
 # Trunks — Especificação Técnica
 
-> Arquitectura alvo em Rust para a reescrita do MCPJungle. Versão 1.1 (2026-11-03).
+> Arquitectura alvo em Rust para a reescrita do MCPJungle. Versão 1.2 (2026-11-04).
 > Pressupõe as decisões D1–D11 de `01-produto.md`. D11 (lib de acesso a dados) está em análise; a spec descreve a camada de dados de forma agnóstica à lib.
 > Contrato externo (REST, CLI, DB) é **compatível** com MCPJungle 0.4.x salvo onde marcado **[BREAKING]**.
 
@@ -58,8 +58,8 @@ trunks/
 │   ├── trunks-api/             # axum: router, middleware, handlers REST/dashboard, montagem MCP
 │   ├── trunks-client/          # SDK HTTP para a REST API (usado pelo CLI; publicável)
 │   ├── trunks/             # clap: comandos; `start` liga tudo. Produz o binário.
-│   └── trunks-dashboard/       # rust-embed do bundle React (web/dashboard/dist)
-├── web/dashboard/             # React/TS inalterado (copiado do original)
+│   └── trunks-dashboard/       # rust-embed do bundle da web app
+├── web/app/                   # web app em Lit + line://ui (D2)
 ├── tests/conformance/         # testes black-box contra o binário (ambos os modos, ambas as DBs)
 └── xtask/                     # build do dashboard, geração de docs, release helpers
 ```
@@ -293,7 +293,7 @@ Middleware:
 - Host/Origin: `StreamableHttpServerConfig.allowed_hosts` por defeito é loopback-only (protecção DNS rebinding — comportamento igual ao mcp-go). Configurável via `MCP_ALLOWED_HOSTS` (lista separada por vírgulas; `*` desliga). **Novo** face ao original, que não permitia configurar.
 - Body limit: 4 MiB nos endpoints REST; `max_request_body_bytes` do rmcp no MCP.
 
-Dashboard: `trunks-dashboard` embebe `web/dashboard/dist` com `rust-embed` (`#[folder = "../../web/dashboard/dist"]`); build via `xtask build-dashboard` (`npm ci && npm run build`). Sem SPA fallback (paridade). `summarize_server_config` nunca emite `bearer_token`, valores de `env`, header `authorization` (case-insensitive), userinfo/query/fragment de URLs; `command` truncado a 80 chars.
+Web app: `trunks-dashboard` embebe o bundle de `web/app` (Lit + `line://ui`) com `rust-embed`; build via `cargo xtask build-dashboard` (`npm ci && npm run build`, copia para `crates/trunks-dashboard/dist`). Sem SPA fallback (paridade com as rotas `/`, `/index.html`, `/assets/*`). `summarize_server_config` nunca emite `bearer_token`, valores de `env`, header `authorization` (case-insensitive), userinfo/query/fragment de URLs; `command` truncado a 80 chars.
 
 ## 6. SDK (`trunks-client`)
 
