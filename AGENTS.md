@@ -41,7 +41,7 @@ imported only from its `gateway` and `upstream` modules.
 
 ## Conventions
 
-- Rust edition 2024, stable toolchain. `cargo xtask ci` must pass: `cargo fmt --all --check`,
+- Rust edition 2024; the toolchain is pinned in `rust-toolchain.toml` (CI uses the same pin; bump it in its own PR). `cargo xtask ci` must pass: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
 - Errors: `snafu`. One `Error` enum per crate, context selectors, `ensure!`; `Whatever` only in
   `main`. No `unwrap`/`expect`/`panic` outside tests (lints enforce it; tests opt out via the
