@@ -176,11 +176,30 @@ pub async fn serve_http() -> String {
     format!("http://{addr}/mcp")
 }
 
-/// Path of the `fake-upstream` binary built alongside the tests (`target/<profile>/fake-upstream`).
+/// Path of the `fake-upstream` binary (`target/<profile>/fake-upstream`).
+///
+/// `cargo test` only builds the binaries of the package under test, so when another crate's
+/// tests need it the binary is built on demand (once per test process).
 pub fn fake_upstream_bin() -> std::path::PathBuf {
-    let exe = std::env::current_exe().unwrap();
-    // target/<profile>/deps/<test-bin>  →  target/<profile>/fake-upstream
-    let dir = exe.parent().unwrap();
-    let dir = if dir.ends_with("deps") { dir.parent().unwrap() } else { dir };
-    dir.join(if cfg!(windows) { "fake-upstream.exe" } else { "fake-upstream" })
+    static BIN: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    BIN.get_or_init(|| {
+        let exe = std::env::current_exe().unwrap();
+        // target/<profile>/deps/<test-bin>  →  target/<profile>/fake-upstream
+        let dir = exe.parent().unwrap();
+        let dir = if dir.ends_with("deps") { dir.parent().unwrap() } else { dir };
+        let path = dir.join(if cfg!(windows) { "fake-upstream.exe" } else { "fake-upstream" });
+        if !path.exists() {
+            let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+            let mut cmd = std::process::Command::new(cargo);
+            cmd.args(["build", "--package", "trunks-testing", "--bin", "fake-upstream"]);
+            if dir.ends_with("release") {
+                cmd.arg("--release");
+            }
+            let status = cmd.status().expect("failed to run cargo build for fake-upstream");
+            assert!(status.success(), "building fake-upstream failed");
+            assert!(path.exists(), "fake-upstream not found at {}", path.display());
+        }
+        path
+    })
+    .clone()
 }
