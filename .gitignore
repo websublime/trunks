@@ -1,0 +1,13 @@
+/target
+**/*.rs.bk
+# dashboard
+web/app/node_modules
+web/app/dist
+crates/trunks-dashboard/dist/*
+!crates/trunks-dashboard/dist/.gitkeep
+# local
+.env
+*.db
+*.db-wal
+*.db-shm
+.DS_Store

@@ -1,0 +1,26 @@
+[package]
+name = "trunks-core"
+description = "Trunks domain: registry, catalog, gateway, sessions, identity, OAuth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+trunks-types = { workspace = true }
+snafu = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+secrecy = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+arc-swap = { workspace = true }
+dashmap = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+
+[lints]
+workspace = true

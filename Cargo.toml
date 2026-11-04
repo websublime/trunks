@@ -1,0 +1,107 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+default-members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MPL-2.0"
+repository = "https://github.com/websublime/trunks"
+homepage = "https://github.com/websublime/trunks"
+authors = ["websublime"]
+publish = false
+
+[workspace.dependencies]
+# internal
+trunks-types = { path = "crates/trunks-types" }
+trunks-core = { path = "crates/trunks-core" }
+trunks-db = { path = "crates/trunks-db" }
+trunks-api = { path = "crates/trunks-api" }
+trunks-client = { path = "crates/trunks-client" }
+trunks-dashboard = { path = "crates/trunks-dashboard" }
+trunks = { path = "crates/trunks" }
+
+# runtime / web
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "process", "sync", "time", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+axum = { version = "0.8", features = ["macros", "json"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "limit"] }
+http = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+
+# mcp
+rmcp = { version = "3.8", features = [
+  "server",
+  "client",
+  "transport-streamable-http-server",
+  "transport-streamable-http-client-reqwest",
+  "transport-child-process",
+  "auth",
+  "schemars",
+] }
+
+# serialization / config
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+dotenvy = "0.15"
+clap = { version = "4", features = ["derive", "env"] }
+
+# errors / logging / metrics
+snafu = { version = "0.8", features = ["futures"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+prometheus-client = "0.23"
+
+# misc
+secrecy = { version = "0.10", features = ["serde"] }
+arc-swap = "1"
+dashmap = "6"
+rand = "0.9"
+base64 = "0.22"
+sha2 = "0.10"
+hex = "0.4"
+regex = "1"
+url = "2"
+chrono = { version = "0.4", features = ["serde"] }
+rust-embed = { version = "8", features = ["include-exclude"] }
+
+# dev
+pretty_assertions = "1"
+insta = { version = "1", features = ["json", "yaml"] }
+wiremock = "0.6"
+assert_cmd = "2"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+dbg_macro = "warn"
+todo = "warn"
+# pedantic lints that fight idiomatic code more than they help
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+opt-level = 3
+
+[profile.dist]
+inherits = "release"

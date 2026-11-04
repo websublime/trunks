@@ -1,0 +1,166 @@
+# Trunks — Plano de Execução
+
+> Versão 1.1 (2026-11-03). Depende de `01-produto.md` (decisões), `02-especificacao.md` (arquitectura) e `03-migracao.md` (contratos e testes de paridade).
+
+---
+
+## 1. Pressupostos
+
+- Um engenheiro (Miguel) a tempo parcial, com apoio de agentes de código. Estimativas em **semanas-pessoa de trabalho efectivo**, não em calendário; multiplicar pelo factor de disponibilidade real.
+- Rust stable, `rmcp` 3.8 pinado. Se um spike falhar, o plano B correspondente da spec §14 substitui o item sem alterar as fases.
+- Decisões D1 (nome: Trunks), D4 (sem SSE), D9 (`cargo-dist`) e D10 (`snafu`) estão fechadas. D11 (lib de acesso a dados, sem ORM) fecha-se na Fase 0 e condiciona o Spike S2.
+- O dashboard React é copiado tal como está; só se toca em `api.ts` se um shape mudar (não deve).
+
+## 2. Princípios de sequenciação
+
+1. **Desriscar primeiro**: os três spikes atacam as únicas incógnitas técnicas reais (`rmcp` server com principal por pedido, lib de DB escolhida em D11 sobre DB GORM, OAuth no `rmcp`).
+2. **Verticais finas, não camadas**: cada fase entrega um fluxo end-to-end utilizável (`start` → `register` → `/mcp` funciona) em vez de "toda a DB" depois "toda a API".
+3. **Teste de contrato antes do código**: no início de cada fase porta-se o subconjunto de testes Go/e2e dessa área; a fase fecha quando passam.
+4. **O binário Go é o oráculo** até à v1.0; o harness diferencial corre em CI desde a Fase 2.
+
+## 3. Fases
+
+### Fase 0 — Spikes e fundações (1,5 sem.)
+
+Objectivo: provar as três hipóteses técnicas e deixar o workspace a compilar com CI verde.
+
+| Item | Entregável | Critério de saída |
+|---|---|---|
+| S1 `rmcp` server | Protótipo axum + `StreamableHttpService<GatewayHandler>` que lê um `Principal` inserido por middleware em `Parts.extensions` e o usa em `list_tools`. Testar com `legacy_session_mode` on/off contra `mcp-remote` e Claude Code. | Principal chega ao handler em ambos os modos de sessão; se não chegar, plano B (service por principal) protótipado e medido. |
+| D11 análise DB | Documento `05-analise-db.md`: comparar `sqlx` (SQL manual; `Any` vs dois backends), `sqlx`+`sea-query`, `rusqlite`+`tokio-postgres` contra os requisitos (dois dialectos, JSON, migrações, bundled SQLite, ergonomia sem ORM, custo de duplicação). | Decisão registada em `01-produto.md`. |
+| S2 DB | Com a lib de D11: structs das 10 tabelas; abrir `fixtures/mcpjungle-0.4.x.sqlite` e um Postgres carregado com `mcpjungle-0.4.x.sql` (gerados pelo binário Go); ler todas as linhas; baseline migration `IF NOT EXISTS` no-op sobre ambas; medir quanto SQL é partilhado vs duplicado. | Zero erros de mapeamento; JSON lido como `serde_json::Value` nas duas DBs. |
+| S3 OAuth | Com `wiremock` como authorization server: discovery → DCR → authorization URL com `state` nosso → troca de code → refresh. Via `rmcp::transport::auth`; se insuficiente, `oauth2` crate. | Fluxo completo em teste automático; decisão `rmcp auth` vs `oauth2` registada. |
+| Workspace | Cargo workspace com os 7 crates vazios, lints (`clippy -D warnings`, `rustfmt`, `cargo-deny`), `snafu` como base de erros em cada crate, CI GitHub Actions (lint, test, build linux/mac/win), `cargo dist init` com `dist-workspace.toml` (targets, Homebrew tap, instaladores), `xtask build-dashboard`, `web/dashboard` copiado e a buildar. | `cargo test` e CI verdes; `trunks --version` imprime versão; `dist plan` lista os artefactos. |
+| Decisões | D11 fechada e registada em `01-produto.md`. | — |
+
+### Fase 1 — Núcleo: arranque, DB, modos, registry read-only (2 sem.)
+
+Objectivo: `trunks start` arranca sobre uma DB MCPJungle existente e serve a parte de leitura da REST API.
+
+- `trunks-types`: enums, newtypes (`ServerName`, `CanonicalName`, `ResourceUri`, `GroupName`) com as tabelas de casos do original; tipos REST.
+- `trunks-db`: structs de linha, repositórios com SQL explícito (lib de D11), `connect()` com toda a precedência de config (`DATABASE_URL`/`POSTGRES_*`/SQLite paths legacy), migrações baseline + `tool_uniqueness`.
+- `trunks-core`: `ServerMode` service (`init`, verificação de modo no arranque), `Catalog` construído da DB, `metrics` (noop + prometheus).
+- `trunks-api`: router, middleware `require_initialized`/`user_auth`/`require_admin`/`require_enterprise`, `/health`, `/metadata`, `/init`, `/metrics`, rotas GET de `/api/v0/{servers,tools,tool,prompts,prompt,resources}`, erros.
+- `trunks`: `start` (config completa, banner, shutdown gracioso), `version`, `list servers|tools|prompts|resources`, `usage`, `--registry`, ficheiro de config.
+- Testes: unit das tabelas de nomes; API tests das rotas GET; conformidade: arrancar sobre as fixtures e comparar `list *` com o Go (harness diferencial v0).
+
+**Saída:** paridade de leitura. Um operador consegue apontar Trunks à DB e ver tudo o que o `mcpjungle list` mostra.
+
+### Fase 2 — Gateway MCP e registry read-write (3 sem.)
+
+Objectivo: fluxo principal completo em modo development.
+
+- `trunks-core::upstream`: `UpstreamConn::connect` para `stdio` (TokioChildProcess, env, stderr→tracing, process group) e `streamable_http` (headers, bearer; sem OAuth ainda); timeout de `initialize` e mensagens de erro de paridade.
+- `trunks-core::sessions`: `SessionManager` stateless/stateful, sweeper de idle, invalidação tipada, shutdown.
+- `trunks-core::registry`: `register` (validar → connect → descobrir tools/prompts/resources → transacção), `deregister`, `set_server_enabled`, `set_{tools,prompts,resources}_enabled`; rebuild do catálogo.
+- `trunks-core::gateway`: `GatewayHandler{Scope::Global}` com `list_*`/`call_tool`/`get_prompt`/`read_resource`, reescrita de nomes/URIs, strip de headers, métricas.
+- `trunks-api`: `ANY /mcp`; `POST /servers` (sem OAuth: devolve erro accionável se o upstream pedir auth), `DELETE /servers/{n}`, `enable|disable` de servidor/tools/prompts, `POST /tools/invoke`, `/prompts/render`, `/resources/{get,read}`, `GET /server_configs`.
+- `trunks`: `register` (flags e `-c` com `${VAR}`; sem OAuth), `deregister`, `enable|disable`, `invoke` (incl. gravação de ficheiros), `get prompt|resource`, `export`.
+- Testes: porta de `proxy_header_test`, `proxy_filter_test` (modo dev), `session_manager_test`, `server_test`, `tool/prompt/resource_test`; e2e `dev_mode_test`; `scripts/test-mcpjungle.sh` com `MCPJUNGLE_BIN=trunks` (excluindo passos enterprise/OAuth/grupos); smoke manual com Claude Code e Cursor.
+
+**Saída:** Trunks substitui MCPJungle para o utilizador individual (modo dev, sem OAuth, sem grupos).
+
+### Fase 3 — Enterprise: identidades e controlo de acesso (1,5 sem.)
+
+- `trunks-core::identity`: users (admin/user), mcp clients, geração/validação de tokens, allow-lists.
+- Middleware `mcp_client_auth`; `Principal::McpClient`; filtragem em `list_tools` e autorização em `call_*` (fail-closed); rejeição de tokens de user no `/mcp`.
+- `/init` em enterprise (cria admin, devolve token uma vez); `/api/v0/{clients,users}` CRUD; `/users/whoami`.
+- CLI: `init-server`, `login`, `create|delete|update mcp-client|user`, `list mcp-clients|users`.
+- Testes: `proxy_filter_test` (enterprise), `mcp_client_test`, `user_test`, `middleware_test`; e2e `enterprise_mode_test`; scripts completos menos OAuth/grupos.
+
+### Fase 4 — Tool groups (1 sem.)
+
+- `trunks-core::groups`: resolução, validação, CRUD transaccional, diff, `GroupView` no catálogo, startup degradado.
+- `GatewayHandler{Scope::Group}`; rota `/v0/groups/{name}/mcp` com cache de services; endpoints na resposta (sem campos SSE).
+- `/api/v0/tool-groups*`; CLI `create|get|list|update|delete group`, `list tools --group`, `invoke --group`.
+- Testes: `toolgroup_test`, `tool_groups_test` (api), e2e `tool_groups_test`; verificar que grupo não alarga allow-list.
+
+### Fase 5 — OAuth upstream (1,5 sem.)
+
+- `trunks-core::oauth`: bootstrap (discovery, DCR condicional, PKCE, `state`, sessão pendente com TTL, transacção), `complete`, `CredentialStore` em DB com refresh; integração em `UpstreamConn::connect` (usa tokens guardados quando existem); limpeza no `deregister`.
+- API: `202 authorization_required`, `POST /upstream_oauth/sessions/{id}/complete`, `code: upstream_oauth_required`.
+- CLI `register`: listener loopback, abrir browser, esperar callback, `complete`; erro claro quando o redirect é fornecido pelo utilizador.
+- Testes: `upstream_oauth_test` (wiremock), e2e `oauth_registration_test`, `force=true` com OAuth.
+
+### Fase 6 — Dashboard (1 sem.)
+
+- `trunks-dashboard` (rust-embed), rotas estáticas dev-only.
+- `trunks-core::dashboard` shaping sanitizado; `/api/dashboard/*` completo incl. `POST /servers` com retry OAuth usando `/api/dashboard/oauth/callback`, página HTML de callback, cache de resultados 10 min, `GET /oauth/session/{id}`.
+- Testes: e2e `dashboard_test` (nunca vaza segredos; 404 em enterprise; toggles reflectem em `/mcp`).
+
+### Fase 7 — Paridade final, hardening e release v1.0 (2 sem.)
+
+- Harness diferencial completo em CI; `scripts/test-mcpjungle.sh` e `test-api-error-responses.sh` a 100 % contra Trunks; matriz {dev, enterprise} × {sqlite, postgres}.
+- Smoke com os 4 clientes reais (Claude Code, Claude Desktop via `mcp-remote`, Cursor, Copilot) em ambos os modos.
+- Hardening: `allowed_hosts`, body limits, timeouts por pedido, fuzz de `CanonicalName::parse`/`ResourceUri::parse` (`cargo-fuzz`, 1 h cada), `cargo deny`, revisão de logs por fuga de segredos.
+- Performance: benchmark `tools/list` com 500 tools e `call_tool` stateless stdio vs Go (expectativa: igual ou melhor; publicar números).
+- Release: `cargo-dist` (release workflow gerado, tag → GitHub Release com binários, instaladores, checksums, formula Homebrew), Dockerfiles (`distroless/cc` e `-stdio`) num workflow próprio, `docker-compose*.yaml`, `CHANGELOG` com §7 da migração, guia operacional §6.
+- Documentação: README, docs (podem reusar o site Mintlify do original como base, com as diferenças marcadas).
+
+**Saída:** v1.0 — paridade declarada com MCPJungle 0.4.x menos SSE.
+
+### Fase 8 — Pós-paridade (backlog priorizado, não estimado)
+
+1. Tokens hasheados (`access_token_hash`, migração in-place, flag de compat para leitura dupla durante a transição).
+2. `trunks apply -d <dir>` — reconciliação declarativa (inverso de `export`); roadmap #2 do original.
+3. Prompts e resources em tool groups; filtragem de prompts/resources na listagem em enterprise.
+4. `--output json` no CLI.
+5. OTLP export; audit log estruturado por chamada (quem, que tool, outcome) — base para roadmap #4.
+6. Users não-admin poderem registar servidores/grupos próprios.
+7. Health checks activos de sessões stateful e reconnect com backoff.
+8. OAuth downstream (OIDC) — roadmap #1 do original; esforço grande, só depois de v1 estável.
+
+## 4. Cronograma agregado
+
+| Fase | Esforço (sem.) | Acumulado | Marco |
+|---|---|---|---|
+| 0 Spikes | 1,5 | 1,5 | M0: hipóteses provadas, CI verde, D1/D4 fechadas |
+| 1 Núcleo | 2 | 3,5 | M1: paridade de leitura sobre DB existente |
+| 2 Gateway | 3 | 6,5 | M2: **utilizável em dev mode** (dogfooding começa aqui) |
+| 3 Enterprise | 1,5 | 8 | M3: auth + ACL |
+| 4 Grupos | 1 | 9 | M4 |
+| 5 OAuth | 1,5 | 10,5 | M5 |
+| 6 Dashboard | 1 | 11,5 | M6: feature-complete |
+| 7 Release | 2 | 13,5 | **v1.0** |
+
+≈ 13–14 semanas-pessoa. Com disponibilidade de ~40 %, aponta para ~8 meses de calendário; com 100 %, ~3,5 meses. O risco de derrapagem concentra-se nas fases 2 e 5.
+
+Dependências entre fases: 0 → 1 → 2 → {3, 4, 5, 6 em qualquer ordem, mas 3 antes de 4 para testar "grupo não alarga ACL"} → 7.
+
+## 5. Definição de "done" por fase
+
+Uma fase só fecha quando **todos** se verificam:
+
+1. Os testes Go da área estão portados (tabelas de casos) e passam.
+2. Os e2e/scripts da área passam contra o binário em {sqlite, postgres} e nos modos aplicáveis.
+3. Harness diferencial sem diffs não justificados nas rotas da área.
+4. `cargo clippy -D warnings`, `cargo fmt --check`, `cargo deny check` limpos; zero `unwrap`/`expect` em código de request path (lint `clippy::unwrap_used` em `trunks-core`/`trunks-api`).
+5. Nenhum segredo em logs (teste que grava logs ao nível `trace` durante os e2e e faz `grep` dos tokens usados).
+6. Secção correspondente de `02-especificacao.md` actualizada se a implementação divergiu.
+
+## 6. Estrutura de trabalho e ferramentas
+
+- **Repositório**: `websublime/trunks` (ou nome final de D1), `main` protegido, PRs por item de fase, squash.
+- **Issues**: um épico por fase; itens da tabela como issues; labels `parity`, `breaking`, `improvement`.
+- **CI** (GitHub Actions): `lint`, `test` (matriz OS × DB; Postgres via service container), `conformance` (precisa de `npx`; Node 20 no runner), `differential` (faz download do release Go 0.4.x), `build` (cargo-dist dry-run).
+- **Fixtures**: gerar `mcpjungle-0.4.x.{sqlite,sql}` com um script que corre o binário Go, regista 3 servidores (stdio, http, http+headers), cria 2 grupos, 2 users, 2 clients — commitado em `tests/fixtures/`, regenerável.
+- **Dogfooding**: a partir de M2, Trunks passa a ser o gateway do próprio ambiente de desenvolvimento (Claude Code + Cursor) — melhor detector de regressões de protocolo.
+
+## 7. Riscos de plano
+
+| Risco | Sinal de alerta | Resposta |
+|---|---|---|
+| Spike S1 falha (sem principal por pedido no `rmcp`) | Fim da Fase 0 | Plano B (service por principal) — +0,5 sem. na Fase 3 |
+| `rmcp` quebra API numa minor | `cargo update` falha a compilar | Pin exacto; `UpstreamConn`/`GatewayHandler` isolam o SDK; actualizar só em fases de release |
+| Fase 2 derrapa (stdio lifecycle, protocolo com clientes reais) | >4 sem. | Cortar `stateful` para Fase 3; priorizar `stateless` + clientes reais |
+| OAuth consome mais que 1,5 sem. | DCR/refresh com ASs reais (GitHub, Atlassian) a falhar | Aceitar v1 com `client_id` manual obrigatório; DCR em 1.1 |
+| Fidelidade de shapes insuficiente | Diffs recorrentes no harness | Aumentar cobertura do harness antes de continuar; é mais barato que corrigir depois |
+| Disponibilidade intermitente | Fases a arrastar sem marcos | Marcos pequenos e demonstráveis; M2 é o ponto a partir do qual já há valor mesmo que o resto pare |
+
+## 8. Primeiras acções (próxima sessão de trabalho)
+
+1. Análise D11 (lib de DB sem ORM) → `05-analise-db.md` → decisão.
+2. Criar repositório `trunks`, workspace Cargo, `snafu`, `cargo dist init`, CI mínimo.
+3. Gerar as fixtures com o binário Go 0.4.x.
+4. Spike S1 (`rmcp` + axum + principal) — é o que mais condiciona a arquitectura.
+5. Spike S2 em paralelo (lib de D11 sobre as fixtures).
