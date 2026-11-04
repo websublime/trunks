@@ -553,7 +553,7 @@ Propriedade central: `UpstreamConn::connect(config)` não recebe o pedido downst
 |---|---|---|---|
 | A1 | Um `GatewayHandler` parametrizado por `Scope` sobre um `Catalog` partilhado | N servidores MCP (um por grupo) com registo próprio | Elimina callbacks de sincronização e duplicação de estado; grupos passam a ser vistas |
 | A2 | `Catalog` em `ArcSwap`, rebuild total por mutação | Cache por entidade com invalidação fina; ou DB por pedido | Mutações são raras e o conjunto é pequeno; rebuild total é trivialmente correcto |
-| A3 | `Principal` tipado em `Parts.extensions` → `RequestContext` | Contexto dinâmico (`ctx.Value`) | Fail-closed por tipo; sem panics; testável sem HTTP |
+| A3 | `Principal` tipado em `Parts.extensions` → `RequestContext` (validado no Spike S1) | Contexto dinâmico; um service por principal | Fail-closed por tipo; sem panics; testável sem HTTP |
 | A4 | Lock por servidor no `SessionManager` | Lock global | Um upstream lento não bloqueia os outros |
 | A5 | Ports (traits) no domínio, repos em `trunks-db` | Domínio a chamar SQL directamente | Testes de domínio com stores em memória; D11 pode mudar a lib sem tocar no domínio |
 | A6 | SQL explícito, sem ORM (D11) | sea-orm / diesel | Decisão do produto; controlo do SQL em dois dialectos; schema é pequeno (10 tabelas) |

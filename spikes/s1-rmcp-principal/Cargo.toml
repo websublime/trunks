@@ -1,0 +1,21 @@
+[package]
+name = "spike-s1-rmcp-principal"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "time"] }
+tokio-util = "0.7"
+axum = { version = "0.8", features = ["macros", "json"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+http = "1"
+http-body-util = "0.1"
+rmcp = { version = "3.8", features = ["server", "client", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "transport-child-process", "macros", "schemars"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

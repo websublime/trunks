@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
+exclude = ["spikes/*"]
 default-members = ["crates/*"]
 
 [workspace.package]
@@ -30,7 +31,7 @@ axum = { version = "0.8", features = ["macros", "json"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "limit"] }
 http = "1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
 
 # mcp
 rmcp = { version = "3.8", features = [

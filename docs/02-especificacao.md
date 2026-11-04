@@ -74,7 +74,7 @@ Nome do binário: `trunks` (D1).
 | Runtime | `tokio` | 1.4x | `rt-multi-thread`, `signal`, `process` |
 | HTTP server | `axum` | 0.8 | + `tower`, `tower-http` (`trace`, `cors` desligado por defeito, `limit`) |
 | MCP | `rmcp` | 3.8 | features: `server`, `client`, `transport-streamable-http-server`, `transport-streamable-http-client-reqwest`, `transport-child-process`, `auth`, `schemars` |
-| HTTP client | `reqwest` | 0.12 | `rustls-tls`, `json`, `stream` |
+| HTTP client | `reqwest` | 0.13 | `rustls`, `json`, `stream` (versão exigida pelo `rmcp` 3.8) |
 | DB | `sqlx` | 0.8 | `runtime-tokio`, `tls-rustls`, `sqlite` (bundled), `postgres`, `json`, `chrono`, `migrate`, `macros`. Pools nativos atrás de `enum Db`; SQL escrito uma vez com `$N`; sem `query!` compile-time. Ver `06-analise-db.md` §5 |
 | CLI | `clap` | 4 | derive, `env` |
 | Serialização | `serde`, `serde_json` | — | `serde_json::Value` para JSON opaco (schemas, configs) |
@@ -185,7 +185,7 @@ impl ServerHandler for GatewayHandler {
 }
 ```
 
-**Principal** — extraído de `ctx.extensions` (rmcp propaga `http::request::Parts`; o middleware axum insere `Principal` em `Parts.extensions` — a verificar no Spike S1 do plano):
+**Principal** — extraído de `ctx.extensions`: o `rmcp` propaga `http::request::Parts` por pedido e o middleware axum insere `Principal` em `Parts.extensions` (verificado no Spike S1):
 
 ```rust
 pub enum Principal { DevOpen, McpClient(Arc<McpClientRecord>), /* nunca User aqui */ }
@@ -380,7 +380,7 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 
 | Risco | Mitigação |
 |---|---|
-| `rmcp` não propaga `http::request::Parts`/extensions para o `ServerHandler` | Spike S1. Plano B: `StreamableHttpService` por principal (cache por token hash) — custa memória mas funciona. |
+| ~~`rmcp` não propaga `http::request::Parts`/extensions para o `ServerHandler`~~ | **Resolvido** — Spike S1 (`docs/spikes/S1-rmcp-principal.md`): propaga por pedido em ambos os modos de sessão; cliente `rmcp` e `mcp-remote` verificados. |
 | `rmcp` `auth` não cobre DCR ou não deixa controlar `state` | Spike S3. Plano B: `oauth2` crate directo (~200 LOC). |
 | Camada de DB sobre DBs legacy (tipos SQLite com afinidade estranha, timestamps em texto) | Resolvido pelos protótipos de `06-analise-db.md` (ambas as fixtures lidas sem workarounds com `sqlx` nativo). Resta o Spike S2 para a baseline migration `IF NOT EXISTS`. |
 | Protocolo: clientes antigos (2025-xx) vs `rmcp` 3.8 default 2026-07-28 | `legacy_session_mode = true` no `StreamableHttpServerConfig` para servir clientes anteriores com sessão; testar com `mcp-remote`, Cursor, Claude Code. |
