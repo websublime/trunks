@@ -18,6 +18,7 @@ use trunks_core::gateway::GatewayState;
 use trunks_core::identity::IdentityService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
+use trunks_core::registry::RegistryService;
 use trunks_core::sessions::{SessionManager, SessionOptions};
 use trunks_core::upstream::ConnectOptions;
 use trunks_db::Db;
@@ -95,10 +96,11 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
 
     let metrics_enabled = args.metrics.unwrap_or(args.mode.is_enterprise());
     let metrics = metrics_enabled.then(|| Metrics::new(&trunks_types::version::version()));
+    let connect = ConnectOptions {
+        init_timeout: std::time::Duration::from_secs(args.upstream_init_timeout_sec.max(1)),
+    };
     let sessions = SessionManager::new(SessionOptions {
-        connect: ConnectOptions {
-            init_timeout: std::time::Duration::from_secs(args.upstream_init_timeout_sec.max(1)),
-        },
+        connect: connect.clone(),
         idle_timeout: (args.session_idle_timeout_sec > 0)
             .then(|| std::time::Duration::from_secs(args.session_idle_timeout_sec)),
         ..SessionOptions::default()
@@ -110,7 +112,7 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         version: trunks_types::version::version(),
     });
     let state = AppState {
-        catalog,
+        catalog: catalog.clone(),
         gateway: gateway.clone(),
         mcp: McpMounts::new(
             gateway,
@@ -122,6 +124,12 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
                     .cloned()
                     .collect(),
             },
+        ),
+        registry_service: RegistryService::new(
+            store.clone(),
+            catalog.clone(),
+            sessions.clone(),
+            connect,
         ),
         registry: store.clone(),
         identity,

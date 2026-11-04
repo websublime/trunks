@@ -2,8 +2,7 @@
 
 //! HTTP layer: axum router, middleware and handlers.
 //!
-//! Route groups and their middleware follow `docs/02-especificacao.md` §5. The MCP mounts
-//! (`/mcp`, `/v0/groups/{name}/mcp`) arrive in Phase 2.
+//! Route groups and their middleware follow `docs/02-especificacao.md` §5.
 
 pub mod error;
 pub mod mcp;
@@ -23,6 +22,7 @@ pub fn router(state: AppState) -> Router {
     let api_v0 = Router::new()
         .merge(routes::registry::user_router())
         .merge(routes::invoke::router())
+        .merge(routes::admin::router().route_layer(from_fn(middleware::require_admin)))
         .merge(
             routes::registry::enterprise_user_router()
                 .layer(from_fn(middleware::require_enterprise)),

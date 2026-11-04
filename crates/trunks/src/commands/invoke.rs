@@ -1,8 +1,45 @@
 //! `trunks invoke <tool> --input '{...}'`
 
+use base64::Engine as _;
 use clap::Args as ClapArgs;
 use snafu::{ResultExt, Whatever};
 use trunks_client::Client;
+
+/// File extension for a MIME type of binary tool output.
+fn extension(mime: Option<&str>) -> &'static str {
+    match mime.map(|m| m.split(';').next().unwrap_or(m).trim()) {
+        Some("image/png") => "png",
+        Some("image/jpeg" | "image/jpg") => "jpg",
+        Some("image/gif") => "gif",
+        Some("image/webp") => "webp",
+        Some("image/svg+xml") => "svg",
+        Some("audio/mpeg" | "audio/mp3") => "mp3",
+        Some("audio/wav" | "audio/x-wav") => "wav",
+        Some("audio/ogg") => "ogg",
+        Some("application/pdf") => "pdf",
+        Some("application/json") => "json",
+        Some("text/plain") => "txt",
+        _ => "bin",
+    }
+}
+
+/// Decodes a base64 payload into `<prefix>_<unix-ms>.<ext>` in the current directory.
+pub fn save_blob(
+    prefix: &str,
+    mime: Option<&str>,
+    data: &str,
+) -> Result<std::path::PathBuf, Whatever> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.trim())
+        .whatever_context("content is not valid base64")?;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    let path = std::path::PathBuf::from(format!("{prefix}_{ts}.{}", extension(mime)));
+    std::fs::write(&path, bytes).whatever_context(format!("writing {}", path.display()))?;
+    Ok(path)
+}
 
 #[derive(Debug, ClapArgs)]
 pub struct Args {
@@ -34,6 +71,27 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
                 item["uri"].as_str().unwrap_or(""),
                 item["name"].as_str().unwrap_or("")
             ),
+            kind @ ("image" | "audio") => {
+                let path = save_blob(
+                    kind,
+                    item["mimeType"].as_str(),
+                    item["data"].as_str().unwrap_or(""),
+                )?;
+                println!("[{kind}] saved to {}", path.display());
+            }
+            "resource" => {
+                let res = &item["resource"];
+                if let Some(t) = res["text"].as_str() {
+                    println!("[resource {}]\n{t}", res["uri"].as_str().unwrap_or(""));
+                } else if let Some(b) = res["blob"].as_str() {
+                    let path = save_blob("resource", res["mimeType"].as_str(), b)?;
+                    println!(
+                        "[resource {}] saved to {}",
+                        res["uri"].as_str().unwrap_or(""),
+                        path.display()
+                    );
+                }
+            }
             other => {
                 println!("[{other}] {}", serde_json::to_string_pretty(item).unwrap_or_default());
             }
@@ -43,4 +101,15 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
         println!("\nStructured content:\n{}", serde_json::to_string_pretty(sc).unwrap_or_default());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn maps_mime_to_extension() {
+        assert_eq!(super::extension(Some("image/png")), "png");
+        assert_eq!(super::extension(Some("audio/mpeg; rate=44100")), "mp3");
+        assert_eq!(super::extension(Some("application/octet-stream")), "bin");
+        assert_eq!(super::extension(None), "bin");
+    }
 }
