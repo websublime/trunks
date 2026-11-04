@@ -13,8 +13,10 @@ pub mod error;
 pub mod migrate;
 pub mod repos;
 pub mod rows;
+pub mod store;
 
 pub use error::{Error, Result};
+pub use store::Store;
 
 use std::str::FromStr;
 use std::time::Duration;

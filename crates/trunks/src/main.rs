@@ -4,8 +4,10 @@
 //! subcommand is a client of its REST API.
 
 mod commands;
+mod config;
 
 use clap::{Parser, Subcommand};
+use secrecy::SecretString;
 use snafu::{ResultExt, Whatever};
 
 const BANNER: &str = r"
@@ -16,6 +18,8 @@ const BANNER: &str = r"
   |_||_|   \__,_|_| |_|_|\_\___/
 ";
 
+const DEFAULT_REGISTRY: &str = "http://127.0.0.1:8080";
+
 #[derive(Debug, Parser)]
 #[command(
     name = "trunks",
@@ -24,9 +28,9 @@ const BANNER: &str = r"
     disable_help_subcommand = true
 )]
 struct Cli {
-    /// Base URL of the Trunks registry server
-    #[arg(long, global = true, default_value = "http://127.0.0.1:8080", env = "TRUNKS_REGISTRY")]
-    registry: String,
+    /// Base URL of the Trunks server (overrides the config file)
+    #[arg(long, global = true, env = "TRUNKS_REGISTRY")]
+    registry: Option<String>,
 
     #[command(subcommand)]
     command: Command,
@@ -36,6 +40,14 @@ struct Cli {
 enum Command {
     /// Start the Trunks gateway server
     Start(commands::start::Args),
+    /// List servers, tools, prompts or resources
+    List(commands::list::Args),
+    /// Show how to call a tool (input schema)
+    Usage(commands::usage::Args),
+    /// Initialize a server running in enterprise mode (creates the admin user)
+    InitServer,
+    /// Store a user access token for this registry
+    Login(commands::auth::LoginArgs),
     /// Print the CLI and server versions
     Version,
 }
@@ -55,23 +67,31 @@ async fn main() -> std::process::ExitCode {
 }
 
 async fn run(cli: Cli) -> Result<(), Whatever> {
+    if let Command::Start(args) = cli.command {
+        return commands::start::run(args).await;
+    }
+
+    let cfg = config::load();
+    let registry = cli.registry.or(cfg.registry_url).unwrap_or_else(|| DEFAULT_REGISTRY.to_owned());
+    let token = cfg.access_token.map(SecretString::from);
+    let client = trunks_client::Client::new(&registry, token, reqwest::Client::new())
+        .whatever_context("invalid registry URL")?;
+
     match cli.command {
-        Command::Start(args) => commands::start::run(args).await,
+        Command::Start(_) => unreachable!("handled above"),
+        Command::List(args) => commands::list::run(&client, args).await,
+        Command::Usage(args) => commands::usage::run(&client, args).await,
+        Command::InitServer => commands::auth::init_server(&client, &registry).await,
+        Command::Login(args) => commands::auth::login(&client, &registry, args).await,
         Command::Version => {
             println!("{BANNER}");
             println!("CLI Version: {}", trunks_types::version::version());
-            let client = trunks_client::Client::new(&cli.registry, None, reqwest_client())
-                .whatever_context("invalid registry URL")?;
             match tokio::time::timeout(std::time::Duration::from_secs(5), client.metadata()).await {
                 Ok(Ok(m)) => println!("Server Version: {}", m.version),
                 _ => println!("Couldn't retrieve Server version at this time"),
             }
-            println!("Server URL: {}", cli.registry);
+            println!("Server URL: {registry}");
             Ok(())
         }
     }
-}
-
-fn reqwest_client() -> reqwest::Client {
-    reqwest::Client::new()
 }

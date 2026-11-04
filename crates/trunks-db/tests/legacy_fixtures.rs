@@ -2,12 +2,12 @@
 //!
 //! SQLite always runs (fixtures are copied to a temp dir). PostgreSQL runs when
 //! `TRUNKS_TEST_PG_URL` points at a server where the test may create databases.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::too_many_lines)]
 
 use std::path::PathBuf;
 
 use trunks_core::ports::ConfigStore as _;
-use trunks_db::repos::config::DbConfigStore;
+use trunks_db::Store;
 use trunks_db::repos::{catalog, config, identity, oauth};
 use trunks_db::{Db, with_pool};
 use trunks_types::ServerMode;
@@ -67,7 +67,7 @@ async fn assert_enterprise_fixture(db: &Db) {
     let cfg = config::get(db).await.unwrap().unwrap();
     assert_eq!(cfg.mode, "enterprise", "'production' alias normalised");
     assert!(cfg.initialized);
-    let store = DbConfigStore(db.clone());
+    let store = Store(db.clone());
     assert_eq!(store.get().await.unwrap().unwrap().mode, ServerMode::Enterprise);
     assert!(!store.init(ServerMode::Development).await.unwrap(), "init is idempotent");
 
@@ -132,6 +132,49 @@ async fn assert_enterprise_fixture(db: &Db) {
     let root = identity::client_by_token(db, "root-token-0123456789").await.unwrap().unwrap();
     assert_eq!(root.allow_list.0, serde_json::json!(["*"]));
 
+    // ports: the catalog snapshot and identities map cleanly onto domain records
+    {
+        use trunks_core::ports::{IdentityStore as _, RegistryStore as _};
+        let snap = store.load_snapshot().await.unwrap();
+        assert_eq!(snap.servers.len(), 4);
+        assert_eq!(snap.tools.len(), 6);
+        assert_eq!(snap.resources.len(), 2);
+        assert_eq!(snap.groups[1].included_servers, vec!["context7".to_string()]);
+        let cat = trunks_core::catalog::Catalog::empty();
+        let view = cat.reload(&store).await.unwrap();
+        assert_eq!(
+            view.enabled_tools().count(),
+            4,
+            "write_file disabled, old_tool on a disabled server"
+        );
+        assert_eq!(view.groups.len(), 2);
+        assert_eq!(
+            view.groups[&trunks_types::GroupName::parse("docs-only").unwrap()]
+                .effective_tools
+                .len(),
+            1
+        );
+        let admin = store.user_by_token("admin-token-0123456789").await.unwrap().unwrap();
+        assert_eq!(admin.role, trunks_types::Role::Admin);
+        let root = store.client_by_token("root-token-0123456789").await.unwrap().unwrap();
+        assert!(root.may_access(&trunks_types::ServerName::parse("anything").unwrap()));
+        let cursor = store.client_by_token("cursor-token-0123456789").await.unwrap().unwrap();
+        assert!(cursor.may_access(&trunks_types::ServerName::parse("filesystem").unwrap()));
+        assert!(!cursor.may_access(&trunks_types::ServerName::parse("atlassian").unwrap()));
+        let created = store
+            .create_user("carol", trunks_types::Role::User, "carol-token-0123456789")
+            .await
+            .unwrap();
+        assert_eq!(created.username, "carol");
+        assert!(
+            store
+                .create_user("carol", trunks_types::Role::User, "other-token-0123456789")
+                .await
+                .is_err(),
+            "duplicate username rejected"
+        );
+    }
+
     let tok = oauth::token_by_server(db, "atlassian").await.unwrap().unwrap();
     assert_eq!(tok.refresh_token.as_deref(), Some("at-refresh"));
     assert!(tok.expires_at.is_some());
@@ -160,7 +203,7 @@ async fn sqlite_fresh_database_initialises() {
     let dir = tempfile::tempdir().unwrap();
     let db = Db::connect(&format!("sqlite://{}/fresh.db", dir.path().display()), 2).await.unwrap();
     assert_eq!(db.migrate().await.unwrap().versions, vec![1, 2, 3]);
-    let store = DbConfigStore(db.clone());
+    let store = Store(db.clone());
     assert!(store.get().await.unwrap().is_none());
     assert!(store.init(ServerMode::Development).await.unwrap());
     assert!(!store.init(ServerMode::Development).await.unwrap());

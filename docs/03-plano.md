@@ -32,7 +32,7 @@ Objectivo: provar as três hipóteses técnicas e deixar o workspace a compilar 
 | S3 OAuth | **Feito** — `docs/spikes/S3-upstream-oauth.md`, código em `spikes/s3-upstream-oauth/`. 22 checks com `wiremock`: 401→discovery→DCR→URL (PKCE/state/resource)→restart→troca→uso via `AuthClient`→refresh→refresh rejeitado; cliente pré-registado; AS sem DCR. `rmcp::transport::auth` chega; sem `oauth2` directo. | Decisão: `rmcp auth`. |
 | Workspace | Cargo workspace com os 7 crates vazios, lints (`clippy -D warnings`, `rustfmt`, `cargo-deny`), `snafu` como base de erros em cada crate, CI GitHub Actions (lint, test, build linux/mac/win), `cargo dist init` com `dist-workspace.toml` (targets, instaladores), `xtask build-dashboard`, `web/dashboard` copiado e a buildar. | `cargo test` e CI verdes; `trunks --version` imprime versão; `dist plan` lista os artefactos. |
 
-### Fase 1 — Núcleo: arranque, DB, modos, registry read-only (2 sem.)
+### Fase 1 — Núcleo: arranque, DB, modos, registry read-only (2 sem.) — **Feita**
 
 Objectivo: `trunks start` arranca sobre uma DB legacy existente (normalizada por migração) e serve a parte de leitura da REST API.
 
@@ -44,6 +44,8 @@ Objectivo: `trunks start` arranca sobre uma DB legacy existente (normalizada por
 - Testes: unit das tabelas de nomes; API tests das rotas GET; conformidade: arrancar sobre as fixtures e comparar `list *` com a implementação legacy (harness diferencial v0).
 
 **Saída:** leitura completa. Um operador aponta Trunks a uma DB existente e vê todos os servidores, tools, prompts e resources.
+
+Entregue: `trunks-types::api` (D13), `trunks-core::{domain,catalog,identity,mode,metrics}` com ports `async_trait`, `trunks-db::Store` (ports sobre `Db`), `trunks-api` (middleware `require_initialized`/`user_auth`/`require_admin`/`require_enterprise`, `/health` `/metadata` `/init` `/metrics`, `GET /api/v0/{servers,tools,tool,prompts,prompt,resources,users/whoami}`), CLI (`start` com catálogo e validação SSE, `list`, `usage`, `init-server`, `login`, config `~/.config/trunks/config.toml` 0600). Testes: domínio (catálogo/grupos), `trunks-db` nas duas DBs, API em dev e enterprise sobre as fixtures.
 
 ### Fase 2 — Gateway MCP e registry read-write (3 sem.)
 
@@ -118,7 +120,7 @@ Movido para `05-roadmap.md` (v1.x operabilidade, v2.0 OIDC, v2.x organizações 
 | Fase | Esforço (sem.) | Acumulado | Marco |
 |---|---|---|---|
 | 0 Spikes | 1,5 | 1,5 | M0: hipóteses provadas, CI verde, D1/D4 fechadas |
-| 1 Núcleo | 2 | 3,5 | M1: leitura completa sobre DB existente |
+| 1 Núcleo | 2 | 3,5 | **M1 atingido**: leitura completa sobre DB existente |
 | 2 Gateway | 3 | 6,5 | M2: **utilizável em dev mode** (dogfooding começa aqui) |
 | 3 Enterprise | 1,5 | 8 | M3: auth + ACL |
 | 4 Grupos | 1 | 9 | M4 |

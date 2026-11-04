@@ -31,7 +31,7 @@ axum = { version = "0.8", features = ["macros", "json"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "limit"] }
 http = "1"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query", "stream"] }
 
 # mcp
 rmcp = { version = "3.8", features = [
@@ -54,6 +54,9 @@ serde_yaml = "0.9"
 dotenvy = "0.15"
 clap = { version = "4", features = ["derive", "env"] }
 
+# async traits for object-safe ports
+async-trait = "0.1"
+
 # errors / logging / metrics
 snafu = { version = "0.8", features = ["futures"] }
 tracing = "0.1"
@@ -72,6 +75,9 @@ regex = "1"
 url = "2"
 chrono = { version = "0.4", features = ["serde"] }
 rust-embed = { version = "8", features = ["include-exclude"] }
+dirs = "6"
+toml = "0.8"
+comfy-table = "7"
 
 # dev
 pretty_assertions = "1"

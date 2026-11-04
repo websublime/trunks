@@ -6,6 +6,7 @@
 //! the public contract (see `docs/02-especificacao.md`) and must not change
 //! within a major version.
 
+pub mod api;
 pub mod enums;
 pub mod error;
 pub mod names;

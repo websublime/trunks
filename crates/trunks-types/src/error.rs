@@ -16,6 +16,9 @@ pub mod messages {
     pub const MISSING_MCP_CLIENT_TOKEN: &str = "missing MCP client access token";
     pub const INVALID_MCP_CLIENT_TOKEN: &str = "invalid MCP client token";
     pub const NAME_REQUIRED: &str = "name is required";
+    pub const INVALID_ACCESS_TOKEN: &str = "invalid access token";
+    pub const INIT_DEV_OK: &str = "Server initialized successfully in development mode";
+    pub const INIT_ENTERPRISE_OK: &str = "Server initialized successfully";
     pub const MISSING_NAME_QUERY: &str = "missing 'name' query parameter";
 }
 

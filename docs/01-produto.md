@@ -163,6 +163,7 @@ Web app em `line://ui` embebida no binário: overview, servidores (registar incl
 | D9 | **Distribuição com `cargo-dist`** (binários multi-plataforma, archives, checksums, instaladores shell/PowerShell; sem Homebrew). Docker via GitHub Actions. | Fechada |
 | D10 | **Erros com `snafu`** em todos os crates (context selectors, `Whatever` no binário, `ensure!`). | Fechada |
 | D11 | **Acesso a dados sem ORM: `sqlx` 0.8** com `SqlitePool`/`PgPool` nativos atrás de um enum, SQL explícito escrito uma vez com placeholders `$N`, `Json<Value>` tipado, migrações por dialecto. Análise e protótipos em `06-analise-db.md`. | Fechada |
+| D13 | **Shapes JSON de `/api/v0` são os de Trunks**: snake_case, sem campos de ORM (`id`, `created_at`), credenciais nunca nas listagens (`env_keys`/`header_keys` só nomes). Paths e semântica estáveis dentro de 1.x. | Fechada |
 | D12 | **Licença: MPL-2.0** (provisória). Decidir antes do primeiro release público se se alinha com o resto do `websublime` (Apache-2.0/MIT). | Em aberto |
 
 ## 9. Critérios de sucesso v1.0

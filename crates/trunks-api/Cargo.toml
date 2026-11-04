@@ -21,10 +21,13 @@ serde_json = { workspace = true }
 snafu = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+secrecy = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
 http-body-util = "0.1"
+trunks-db = { workspace = true }
+tempfile = { workspace = true }
 pretty_assertions = { workspace = true }
 
 [lints]

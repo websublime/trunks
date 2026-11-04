@@ -12,8 +12,8 @@ pub enum Error {
     #[snafu(display("{what} not found"))]
     NotFound { what: String },
 
-    /// Maps to 400.
-    #[snafu(display("invalid user input: {reason}"))]
+    /// Maps to 400. The reason is shown verbatim (clients match on it).
+    #[snafu(display("{reason}"))]
     InvalidInput { reason: String },
 
     /// Maps to 400 with `code = upstream_oauth_required`.

@@ -1,6 +1,5 @@
 //! `server_configs`: the single row holding the operating mode. Implements the `ConfigStore` port.
 
-use trunks_core::ports::{ConfigStore, ServerConfig};
 use trunks_types::ServerMode;
 
 use crate::rows::ServerConfigRow;
@@ -30,23 +29,4 @@ pub async fn init(db: &Db, mode: ServerMode) -> Result<bool> {
         .await
         .map(|r| r.rows_affected())?);
     Ok(true)
-}
-
-/// `trunks-core` port implementation.
-#[derive(Debug, Clone)]
-pub struct DbConfigStore(pub Db);
-
-impl ConfigStore for DbConfigStore {
-    async fn get(&self) -> trunks_core::Result<Option<ServerConfig>> {
-        let Some(row) = get(&self.0).await? else { return Ok(None) };
-        let mode =
-            ServerMode::parse_lenient(&row.mode).ok_or_else(|| trunks_core::Error::Internal {
-                reason: format!("unknown server mode '{}' in database", row.mode),
-            })?;
-        Ok(Some(ServerConfig { mode, initialized: row.initialized }))
-    }
-
-    async fn init(&self, mode: ServerMode) -> trunks_core::Result<bool> {
-        Ok(init(&self.0, mode).await?)
-    }
 }

@@ -1,14 +1,14 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-//! HTTP client for the Trunks management REST API (`/api/v0`).
-//!
-//! Only `/metadata` exists in this phase; the rest of the surface is added
-//! alongside each API handler.
+//! HTTP client for the Trunks management REST API (`/api/v0`). Used by the CLI; public.
 
 use secrecy::{ExposeSecret, SecretString};
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use snafu::{ResultExt, Snafu};
-use trunks_types::ApiErrorResponse;
+use trunks_types::api::{
+    InitRequest, InitResponse, McpServer, Prompt, Resource, ServerMetadata, Tool, User,
+};
+use trunks_types::{ApiErrorResponse, ServerMode};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -23,12 +23,18 @@ pub enum Error {
     Status { status: u16, message: String },
 }
 
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub struct ServerMetadata {
-    pub version: String,
+impl Error {
+    /// Machine-readable error code, when the server sent one.
+    #[must_use]
+    pub fn code(&self) -> Option<&str> {
+        match self {
+            Self::Api { body, .. } => body.code.as_deref(),
+            _ => None,
+        }
+    }
 }
+
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -39,7 +45,10 @@ pub struct Client {
 
 impl Client {
     pub fn new(base_url: &str, token: Option<SecretString>, http: reqwest::Client) -> Result<Self> {
-        let base = url::Url::parse(base_url).context(UrlSnafu { url: base_url })?;
+        let mut base = url::Url::parse(base_url).context(UrlSnafu { url: base_url })?;
+        if !base.path().ends_with('/') {
+            base.set_path(&format!("{}/", base.path()));
+        }
         Ok(Self { base, token, http })
     }
 
@@ -48,18 +57,64 @@ impl Client {
         &self.base
     }
 
-    /// `GET /metadata` — no authentication.
+    /// A copy of this client authenticating with `token`.
+    #[must_use]
+    pub fn with_token(&self, token: SecretString) -> Self {
+        Self { base: self.base.clone(), token: Some(token), http: self.http.clone() }
+    }
+
+    // ---- public
     pub async fn metadata(&self) -> Result<ServerMetadata> {
-        let url = self.join("/metadata")?;
-        let resp = self.http.get(url).send().await.context(HttpSnafu)?;
-        Self::decode(resp).await
+        self.get("metadata", &[]).await
+    }
+
+    pub async fn init(&self, mode: ServerMode) -> Result<InitResponse> {
+        let url = self.join("init")?;
+        let res =
+            self.http.post(url).json(&InitRequest { mode }).send().await.context(HttpSnafu)?;
+        Self::decode(res).await
+    }
+
+    // ---- /api/v0, user level
+    pub async fn list_servers(&self) -> Result<Vec<McpServer>> {
+        self.get("api/v0/servers", &[]).await
+    }
+
+    pub async fn list_tools(&self, server: Option<&str>) -> Result<Vec<Tool>> {
+        self.get("api/v0/tools", &opt("server", server)).await
+    }
+
+    pub async fn get_tool(&self, name: &str) -> Result<Tool> {
+        self.get("api/v0/tool", &[("name", name)]).await
+    }
+
+    pub async fn list_prompts(&self, server: Option<&str>) -> Result<Vec<Prompt>> {
+        self.get("api/v0/prompts", &opt("server", server)).await
+    }
+
+    pub async fn get_prompt(&self, name: &str) -> Result<Prompt> {
+        self.get("api/v0/prompt", &[("name", name)]).await
+    }
+
+    pub async fn list_resources(&self, server: Option<&str>) -> Result<Vec<Resource>> {
+        self.get("api/v0/resources", &opt("server", server)).await
+    }
+
+    pub async fn whoami(&self) -> Result<User> {
+        self.get("api/v0/users/whoami", &[]).await
+    }
+
+    // ---- plumbing
+    async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> Result<T> {
+        let url = self.join(path)?;
+        let req = self.authorized(self.http.get(url).query(query));
+        Self::decode(req.send().await.context(HttpSnafu)?).await
     }
 
     fn join(&self, path: &str) -> Result<url::Url> {
         self.base.join(path).context(UrlSnafu { url: path })
     }
 
-    #[allow(dead_code)]
     fn authorized(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match &self.token {
             Some(t) => req.bearer_auth(t.expose_secret()),
@@ -67,16 +122,20 @@ impl Client {
         }
     }
 
-    async fn decode<T: serde::de::DeserializeOwned>(resp: reqwest::Response) -> Result<T> {
-        let status = resp.status();
+    async fn decode<T: DeserializeOwned>(res: reqwest::Response) -> Result<T> {
+        let status = res.status();
         if status.is_success() {
-            return resp.json().await.context(HttpSnafu);
+            return res.json().await.context(HttpSnafu);
         }
         let code = status.as_u16();
-        let text = resp.text().await.unwrap_or_default();
+        let text = res.text().await.unwrap_or_default();
         match serde_json::from_str::<ApiErrorResponse>(&text) {
             Ok(body) => Err(Error::Api { status: code, body }),
             Err(_) => Err(Error::Status { status: code, message: text }),
         }
     }
+}
+
+fn opt<'a>(key: &'a str, value: Option<&'a str>) -> Vec<(&'a str, &'a str)> {
+    value.map(|v| vec![(key, v)]).unwrap_or_default()
 }

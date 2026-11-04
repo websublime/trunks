@@ -7,6 +7,25 @@ use trunks_core::Error;
 use trunks_types::ApiErrorResponse;
 use trunks_types::error::CODE_UPSTREAM_OAUTH_REQUIRED;
 
+/// JSON body extractor whose rejection is our `400 {"error": …}` envelope instead of axum's 422 text.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct JsonBody<T>(pub T);
+
+impl<S, T> axum::extract::FromRequest<S> for JsonBody<T>
+where
+    S: Send + Sync,
+    T: serde::de::DeserializeOwned,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        match Json::<T>::from_request(req, state).await {
+            Ok(Json(v)) => Ok(Self(v)),
+            Err(rej) => Err(ApiError(Error::invalid_input(rej.body_text()))),
+        }
+    }
+}
+
 /// Newtype so `trunks-api` can implement `IntoResponse` for the domain error.
 #[derive(Debug)]
 pub struct ApiError(pub Error);
