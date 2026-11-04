@@ -8,7 +8,7 @@
 
 - Um engenheiro (Miguel) a tempo parcial, com apoio de agentes de código. Estimativas em **semanas-pessoa de trabalho efectivo**, não em calendário; multiplicar pelo factor de disponibilidade real.
 - Rust stable, `rmcp` 3.8 pinado. Se um spike falhar, o plano B correspondente da spec §14 substitui o item sem alterar as fases.
-- Decisões D1 (nome: Trunks), D4 (sem SSE), D9 (`cargo-dist`) e D10 (`snafu`) estão fechadas. D11 (lib de acesso a dados, sem ORM) fecha-se na Fase 0 e condiciona o Spike S2.
+- Decisões D1 (nome: Trunks), D4 (sem SSE), D9 (`cargo-dist`), D10 (`snafu`) e D11 (`sqlx` sem ORM, `06-analise-db.md`) estão fechadas.
 - A web app é construída com `line://ui` (D2). Roadmap pós-v1.0 em `05-roadmap.md`.
 
 ## 2. Princípios de sequenciação
@@ -27,11 +27,10 @@ Objectivo: provar as três hipóteses técnicas e deixar o workspace a compilar 
 | Item | Entregável | Critério de saída |
 |---|---|---|
 | S1 `rmcp` server | Protótipo axum + `StreamableHttpService<GatewayHandler>` que lê um `Principal` inserido por middleware em `Parts.extensions` e o usa em `list_tools`. Testar com `legacy_session_mode` on/off contra `mcp-remote` e Claude Code. | Principal chega ao handler em ambos os modos de sessão; se não chegar, plano B (service por principal) protótipado e medido. |
-| D11 análise DB | Documento `05-analise-db.md`: comparar `sqlx` (SQL manual; `Any` vs dois backends), `sqlx`+`sea-query`, `rusqlite`+`tokio-postgres` contra os requisitos (dois dialectos, JSON, migrações, bundled SQLite, ergonomia sem ORM, custo de duplicação). | Decisão registada em `01-produto.md`. |
-| S2 DB | Com a lib de D11: structs das 10 tabelas; abrir `tests/fixtures/legacy.sqlite` e um Postgres carregado com `tests/fixtures/legacy.sql`; ler todas as linhas; baseline migration `IF NOT EXISTS` no-op sobre ambas; medir quanto SQL é partilhado vs duplicado. | Zero erros de mapeamento; JSON lido como `serde_json::Value` nas duas DBs. |
+| D11 análise DB | **Feito** — `06-analise-db.md`: 4 protótipos contra as fixtures SQLite e Postgres; decisão `sqlx` nativo com `$N`. | Decisão registada em `01-produto.md`. |
+| S2 DB | Structs das 10 tabelas em `trunks-db`; abrir `tests/fixtures/legacy-*.sqlite` e um Postgres carregado com `legacy-enterprise.sql`; ler todas as linhas; baseline migration `IF NOT EXISTS` no-op sobre ambas + `normalize_legacy`. (Leitura de 4 tabelas já provada pelos protótipos.) | Zero erros de mapeamento; migração no-op numa DB legacy. |
 | S3 OAuth | Com `wiremock` como authorization server: discovery → DCR → authorization URL com `state` nosso → troca de code → refresh. Via `rmcp::transport::auth`; se insuficiente, `oauth2` crate. | Fluxo completo em teste automático; decisão `rmcp auth` vs `oauth2` registada. |
 | Workspace | Cargo workspace com os 7 crates vazios, lints (`clippy -D warnings`, `rustfmt`, `cargo-deny`), `snafu` como base de erros em cada crate, CI GitHub Actions (lint, test, build linux/mac/win), `cargo dist init` com `dist-workspace.toml` (targets, instaladores), `xtask build-dashboard`, `web/dashboard` copiado e a buildar. | `cargo test` e CI verdes; `trunks --version` imprime versão; `dist plan` lista os artefactos. |
-| Decisões | D11 fechada e registada em `01-produto.md`. | — |
 
 ### Fase 1 — Núcleo: arranque, DB, modos, registry read-only (2 sem.)
 
@@ -163,8 +162,8 @@ Uma fase só fecha quando **todos** se verificam:
 
 ## 8. Primeiras acções (próxima sessão de trabalho)
 
-1. Análise D11 (lib de DB sem ORM) → `05-analise-db.md` → decisão.
-2. Criar repositório `trunks`, workspace Cargo, `snafu`, `cargo dist init`, CI mínimo.
-3. Gerar as fixtures legacy (`tests/fixtures/`).
+1. ~~Análise D11~~ feita (`06-analise-db.md`).
+2. ~~Repositório, workspace, `snafu`, `cargo dist`, CI~~ feito.
+3. ~~Fixtures legacy~~ feitas (sintéticas; regenerar com binário real quando possível).
 4. Spike S1 (`rmcp` + axum + principal) — é o que mais condiciona a arquitectura.
-5. Spike S2 em paralelo (lib de D11 sobre as fixtures).
+5. Spike S2 (`trunks-db` sobre as fixtures) e S3 (OAuth) em paralelo.

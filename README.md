@@ -22,6 +22,7 @@ OIDC, organisations and teams, and declarative configuration. See `docs/`.
 | [`docs/03-plano.md`](docs/03-plano.md) | Execution plan: phases, milestones, definition of done |
 | [`docs/04-arquitectura.md`](docs/04-arquitectura.md) | Architecture views (C4, sequences, data, deployment) and ADRs |
 | [`docs/05-roadmap.md`](docs/05-roadmap.md) | Beyond v1: `line://ui` web app, OIDC, organisations and teams, governance |
+| [`docs/06-analise-db.md`](docs/06-analise-db.md) | Data-access layer analysis and decision (sqlx, no ORM) |
 
 Documents are written in Portuguese (pt-PT) with English technical terms.
 

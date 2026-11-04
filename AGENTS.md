@@ -2,7 +2,7 @@
 
 Trunks is a self-hosted MCP gateway and registry in Rust. Read `docs/` before non-trivial
 changes: `01-produto.md` (decisions D1–D12), `02-especificacao.md` (contracts and modules),
-`03-plano.md` (phases), `04-arquitectura.md`, `05-roadmap.md`.
+`03-plano.md` (phases), `04-arquitectura.md`, `05-roadmap.md`, `06-analise-db.md` (data layer rules).
 Explicit task instructions take precedence over this file.
 
 ## Principles
@@ -26,7 +26,7 @@ Explicit task instructions take precedence over this file.
 |---|---|
 | `crates/trunks-types` | Canonical names (`ServerName`, `CanonicalName`, `ResourceUri`, `GroupName`), enums, REST types, error envelope and message constants |
 | `crates/trunks-core` | Domain: `error`, `ports` (store traits), registry, catalog, gateway (`rmcp` `ServerHandler`), sessions, upstream connections, OAuth, identity, groups |
-| `crates/trunks-db` | SQL over SQLite/PostgreSQL (no ORM), migrations, implementations of the ports |
+| `crates/trunks-db` | `sqlx` over SQLite/PostgreSQL (no ORM): one SQL string per operation with `$N` placeholders, per-dialect migrations, implementations of the ports |
 | `crates/trunks-api` | axum router, middleware, REST handlers, MCP mounts, dashboard API, error → HTTP mapping |
 | `crates/trunks-client` | HTTP SDK used by the CLI (public, wire-compatible) |
 | `crates/trunks-dashboard` | `rust-embed` of `web/app` build output |

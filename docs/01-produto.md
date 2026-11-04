@@ -162,7 +162,7 @@ Web app em `line://ui` embebida no binário: overview, servidores (registar incl
 | D8 | **Melhorias pós-v1.0** geridas em `05-roadmap.md`. | Proposto |
 | D9 | **Distribuição com `cargo-dist`** (binários multi-plataforma, archives, checksums, instaladores shell/PowerShell; sem Homebrew). Docker via GitHub Actions. | Fechada |
 | D10 | **Erros com `snafu`** em todos os crates (context selectors, `Whatever` no binário, `ensure!`). | Fechada |
-| D11 | **Acesso a dados sem ORM.** A lib concreta (sqlx com SQL manual vs. sqlx + `sea-query` vs. drivers nativos) é decidida numa análise dedicada antes da Fase 1. | Em análise |
+| D11 | **Acesso a dados sem ORM: `sqlx` 0.8** com `SqlitePool`/`PgPool` nativos atrás de um enum, SQL explícito escrito uma vez com placeholders `$N`, `Json<Value>` tipado, migrações por dialecto. Análise e protótipos em `06-analise-db.md`. | Fechada |
 | D12 | **Licença: MPL-2.0** (provisória). Decidir antes do primeiro release público se se alinha com o resto do `websublime` (Apache-2.0/MIT). | Em aberto |
 
 ## 9. Critérios de sucesso v1.0
@@ -178,4 +178,4 @@ Web app em `line://ui` embebida no binário: overview, servidores (registar incl
 - SDK Rust MCP: https://docs.rs/rmcp
 - `line://ui`: https://line-ui.websublime.com
 
-Documentos relacionados: `02-especificacao.md`, `03-plano.md`, `04-arquitectura.md`, `05-roadmap.md`.
+Documentos relacionados: `02-especificacao.md`, `03-plano.md`, `04-arquitectura.md`, `05-roadmap.md`, `06-analise-db.md`.

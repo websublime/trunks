@@ -1,7 +1,7 @@
 # Trunks — Especificação Técnica
 
 > Especificação técnica de Trunks. Versão 2.0 (2026-11-04).
-> Pressupõe as decisões D1–D12 de `01-produto.md`. D11 (lib de acesso a dados) está em análise; a spec descreve a camada de dados de forma agnóstica à lib.
+> Pressupõe as decisões D1–D12 de `01-produto.md`. D11 fechada: `sqlx` sem ORM (`06-analise-db.md`).
 > Compatibilidade de **dados** com deployments legacy (D3) é tratada por migração no arranque; nomes (env vars, ficheiros, métricas, esquemas de URI) são exclusivamente os de Trunks.
 
 ---
@@ -75,7 +75,7 @@ Nome do binário: `trunks` (D1).
 | HTTP server | `axum` | 0.8 | + `tower`, `tower-http` (`trace`, `cors` desligado por defeito, `limit`) |
 | MCP | `rmcp` | 3.8 | features: `server`, `client`, `transport-streamable-http-server`, `transport-streamable-http-client-reqwest`, `transport-child-process`, `auth`, `schemars` |
 | HTTP client | `reqwest` | 0.12 | `rustls-tls`, `json`, `stream` |
-| DB | **em análise (D11)** — sem ORM | — | candidatos: `sqlx` (SQL manual, `Any` ou dois backends), `sqlx` + `sea-query` (query builder, não ORM), `rusqlite` + `tokio-postgres`. Requisitos: SQLite bundled (sem libsqlite3 do sistema) e Postgres via rustls; JSON como `serde_json::Value`; migrações versionadas idempotentes |
+| DB | `sqlx` | 0.8 | `runtime-tokio`, `tls-rustls`, `sqlite` (bundled), `postgres`, `json`, `chrono`, `migrate`, `macros`. Pools nativos atrás de `enum Db`; SQL escrito uma vez com `$N`; sem `query!` compile-time. Ver `06-analise-db.md` §5 |
 | CLI | `clap` | 4 | derive, `env` |
 | Serialização | `serde`, `serde_json` | — | `serde_json::Value` para JSON opaco (schemas, configs) |
 | Config | `dotenvy` | — | precedência implementada à mão (ver §9) |
@@ -127,7 +127,7 @@ Schema de tabelas e colunas compatível com DBs legacy (D3) para que a migraçã
 | `upstream_oauth_pending_sessions` | `session_id UNIQUE` (64 hex), `server_name IDX`, `transport`, `server_input JSON`, `force`, `redirect_uri`, `client_id`, `client_secret`, `scopes JSON`, `state`, `code_verifier`, `expires_at IDX`, `initiated_by` | TTL 10 min |
 | `upstream_oauth_tokens` | `server_name UNIQUE`, `transport`, `client_id`, `client_secret`, `redirect_uri`, `scopes JSON`, `access_token`, `token_type`, `refresh_token`, `scope`, `expires_at` | |
 
-JSON: Postgres `jsonb`; SQLite `TEXT`. Lido/escrito como `serde_json::Value` em ambos (em Postgres com cast `::jsonb` no SQL se a lib escolhida não tipar JSON — ver D11).
+JSON: Postgres `jsonb`; SQLite `TEXT`. Lido/escrito como `sqlx::types::Json<serde_json::Value>` em ambos, sem casts.
 
 ### 4.3 Catalog
 
@@ -314,7 +314,7 @@ Web app: `trunks-dashboard` embebe o bundle de `web/app` (Lit + `line://ui`) com
 1. `dotenvy::dotenv().ok()`.
 2. Resolver `ServerMode` (`--mode` > `TRUNKS_MODE` > `development`); `TRUNKS_METRICS_ENABLED` (default on em enterprise).
 3. `tracing` init (`TRUNKS_LOG`, fallback `RUST_LOG`, default `info`; JSON em enterprise).
-4. DB: `--database-url` > `TRUNKS_DATABASE_URL` (ou `TRUNKS_DATABASE_URL_FILE`) > `sqlite://trunks.db`. SQLite: `?mode=rwc`, `journal_mode=WAL`, `busy_timeout=5000`. **Migrações versionadas** com a ferramenta da lib escolhida em D11 (baseline idempotente sobre o schema legacy + `normalize_legacy`; detalhe no doc interno de migração).
+4. DB: `--database-url` > `TRUNKS_DATABASE_URL` (ou `TRUNKS_DATABASE_URL_FILE`) > `sqlite://trunks.db`. SQLite: `?mode=rwc`, `journal_mode=WAL`, `busy_timeout=5000`. **Migrações** `sqlx::migrate!` com um directório por dialecto (`migrations/sqlite`, `migrations/postgres`): baseline idempotente sobre o schema legacy + `normalize_legacy` (detalhe no doc interno de migração).
 5. Verificar modo: se inicializado noutro modo → erro `"server is already initialized in X mode, cannot start in Y mode"`. Se não inicializado e dev → `init(dev)` silencioso; enterprise → imprimir lembrete `init-server`.
 6. Validação: se existir `mcp_servers.transport = 'sse'` **enabled** → erro de arranque com instruções (D4), ou warn + skip se `TRUNKS_IGNORE_SSE_SERVERS=1`.
 7. Construir `Catalog` (falha de parse de `input_schema` → **erro de arranque**; `annotations` inválidas → warn + vazio).
@@ -382,7 +382,7 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 |---|---|
 | `rmcp` não propaga `http::request::Parts`/extensions para o `ServerHandler` | Spike S1. Plano B: `StreamableHttpService` por principal (cache por token hash) — custa memória mas funciona. |
 | `rmcp` `auth` não cobre DCR ou não deixa controlar `state` | Spike S3. Plano B: `oauth2` crate directo (~200 LOC). |
-| Lib de DB (D11): JSON em SQLite (`TEXT`) vs `jsonb` Postgres sobre DBs legacy; placeholders `?` vs `$1`; `RETURNING` | Análise D11 + Spike S2: abrir fixtures legacy (sqlite e pg) com a lib candidata; baseline migration só `CREATE TABLE IF NOT EXISTS`. |
+| Camada de DB sobre DBs legacy (tipos SQLite com afinidade estranha, timestamps em texto) | Resolvido pelos protótipos de `06-analise-db.md` (ambas as fixtures lidas sem workarounds com `sqlx` nativo). Resta o Spike S2 para a baseline migration `IF NOT EXISTS`. |
 | Protocolo: clientes antigos (2025-xx) vs `rmcp` 3.8 default 2026-07-28 | `legacy_session_mode = true` no `StreamableHttpServerConfig` para servir clientes anteriores com sessão; testar com `mcp-remote`, Cursor, Claude Code. |
 | SSE (D4) | Decisão explícita antes da fase 3. |
 | Regressão silenciosa de contrato | Suite de conformidade escrita **antes** de implementar cada área (TDD por contrato). |
