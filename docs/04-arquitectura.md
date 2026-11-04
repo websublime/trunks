@@ -472,7 +472,7 @@ flowchart TB
             pg[("postgres:17")]
             t --> pg
         end
-        cli["trunks CLI (brew)"] --> t
+        cli["trunks CLI (installer.sh)"] --> t
         ide["Claude Code · Cursor"] -- "http://localhost:8080/mcp" --> t
         br["Browser → dashboard"] --> t
         fs["./ montado em /host:ro"] -.-> t
@@ -560,7 +560,7 @@ Propriedade central: `UpstreamConn::connect(config)` não recebe o pedido downst
 | A7 | `snafu` com um `Error` por crate (D10) | `thiserror` + `anyhow` | Context selectors obrigam a classificar erros na fronteira de cada camada |
 | A8 | Sem SSE (D4) | Implementar SSE à mão | Deprecado no spec; `rmcp` não o tem; custo sem retorno |
 | A9 | Web app em Lit + `line://ui`, embebida no binário (D2) | React; Rust/WASM | Design system próprio; a app cresce para consola autenticada (OIDC, orgs) |
-| A10 | `cargo-dist` para release (D9) | pipeline à mão com Actions | Padrão do ecossistema; Homebrew, instaladores e checksums incluídos |
+| A10 | `cargo-dist` para release (D9) | pipeline à mão com Actions | Padrão do ecossistema; instaladores e checksums incluídos |
 | A11 | `prometheus-client` directo, sem OTel SDK | OTel SDK + exporter Prometheus | Sem OTLP em v1, OTel só adiciona peso; reavaliar quando OTLP entrar (v3) |
 | A12 | Rust 2024, `clippy::unwrap_used` em `core`/`api` | — | Sem panics em request path |
 

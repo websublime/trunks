@@ -58,7 +58,7 @@ Requirements: Rust stable ≥ 1.85 (edition 2024). Node 20 is only needed to bui
 
 Built and published with [`cargo-dist`](https://opensource.axo.dev/cargo-dist/):
 archives for Linux/macOS/Windows (x86_64 and arm64), shell and PowerShell
-installers, Homebrew tap `websublime/homebrew-trunks`, checksums. Container
+installers, checksums. Container
 images are built by a separate workflow.
 
 ## License

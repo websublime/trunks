@@ -30,7 +30,7 @@ Objectivo: provar as três hipóteses técnicas e deixar o workspace a compilar 
 | D11 análise DB | Documento `05-analise-db.md`: comparar `sqlx` (SQL manual; `Any` vs dois backends), `sqlx`+`sea-query`, `rusqlite`+`tokio-postgres` contra os requisitos (dois dialectos, JSON, migrações, bundled SQLite, ergonomia sem ORM, custo de duplicação). | Decisão registada em `01-produto.md`. |
 | S2 DB | Com a lib de D11: structs das 10 tabelas; abrir `tests/fixtures/legacy.sqlite` e um Postgres carregado com `tests/fixtures/legacy.sql`; ler todas as linhas; baseline migration `IF NOT EXISTS` no-op sobre ambas; medir quanto SQL é partilhado vs duplicado. | Zero erros de mapeamento; JSON lido como `serde_json::Value` nas duas DBs. |
 | S3 OAuth | Com `wiremock` como authorization server: discovery → DCR → authorization URL com `state` nosso → troca de code → refresh. Via `rmcp::transport::auth`; se insuficiente, `oauth2` crate. | Fluxo completo em teste automático; decisão `rmcp auth` vs `oauth2` registada. |
-| Workspace | Cargo workspace com os 7 crates vazios, lints (`clippy -D warnings`, `rustfmt`, `cargo-deny`), `snafu` como base de erros em cada crate, CI GitHub Actions (lint, test, build linux/mac/win), `cargo dist init` com `dist-workspace.toml` (targets, Homebrew tap, instaladores), `xtask build-dashboard`, `web/dashboard` copiado e a buildar. | `cargo test` e CI verdes; `trunks --version` imprime versão; `dist plan` lista os artefactos. |
+| Workspace | Cargo workspace com os 7 crates vazios, lints (`clippy -D warnings`, `rustfmt`, `cargo-deny`), `snafu` como base de erros em cada crate, CI GitHub Actions (lint, test, build linux/mac/win), `cargo dist init` com `dist-workspace.toml` (targets, instaladores), `xtask build-dashboard`, `web/dashboard` copiado e a buildar. | `cargo test` e CI verdes; `trunks --version` imprime versão; `dist plan` lista os artefactos. |
 | Decisões | D11 fechada e registada em `01-produto.md`. | — |
 
 ### Fase 1 — Núcleo: arranque, DB, modos, registry read-only (2 sem.)
@@ -96,7 +96,7 @@ Objectivo: fluxo principal completo em modo development.
 - Smoke com os 4 clientes reais (Claude Code, Claude Desktop via `mcp-remote`, Cursor, Copilot) em ambos os modos.
 - Hardening: `allowed_hosts`, body limits, timeouts por pedido, fuzz de `CanonicalName::parse`/`ResourceUri::parse` (`cargo-fuzz`, 1 h cada), `cargo deny`, revisão de logs por fuga de segredos.
 - Performance: benchmark `tools/list` com 500 tools e `call_tool` stateless stdio; publicar números.
-- Release: `cargo-dist` (release workflow gerado, tag → GitHub Release com binários, instaladores, checksums, formula Homebrew), Dockerfiles (`distroless/cc` e `-stdio`) num workflow próprio, `docker-compose*.yaml`, `CHANGELOG` com §7 da migração, guia operacional §6.
+- Release: `cargo-dist` (release workflow gerado, tag → GitHub Release com binários, instaladores, checksums), Dockerfiles (`distroless/cc` e `-stdio`) num workflow próprio, `docker-compose*.yaml`, `CHANGELOG` com §7 da migração, guia operacional §6.
 - Documentação: README, site de docs (quickstart, guias, referência CLI/API/config).
 
 **Saída:** v1.0.

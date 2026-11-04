@@ -127,7 +127,7 @@ Web app em `line://ui` embebida no binário: overview, servidores (registar incl
 - SQLite (defeito, `sqlite://trunks.db`) ou PostgreSQL, via `TRUNKS_DATABASE_URL`.
 - Configuração por flags > env vars > defaults; `.env` carregado automaticamente.
 - Imagens Docker: `latest` (distroless) e `latest-stdio` (com Node 20 + `uv`/`uvx` para upstreams stdio).
-- Binários para Linux/macOS/Windows × amd64/arm64 via `cargo-dist`; instaladores shell/PowerShell; Homebrew tap.
+- Binários para Linux/macOS/Windows × amd64/arm64 via `cargo-dist`; instaladores shell/PowerShell.
 - Shutdown gracioso: fecha sessões stateful, drena HTTP em 10 s.
 
 ## 6. Fora de âmbito em v1
@@ -160,7 +160,7 @@ Web app em `line://ui` embebida no binário: overview, servidores (registar incl
 | D6 | **Nomes próprios, sem aliases legacy**: todas as env vars com prefixo `TRUNKS_*` (`TRUNKS_MODE`, `TRUNKS_DATABASE_URL`, `TRUNKS_PORT`, …), config do CLI em `~/.config/trunks/config.toml`, DB por defeito `trunks.db`, URIs de resources `trunks://res/…`, modos só `development`/`enterprise`. | Fechada |
 | D7 | **Métricas** `trunks_tool_calls_total` / `trunks_tool_call_latency_seconds` (+ `trunks_upstream_sessions_active`, `trunks_upstream_connect_errors_total`, `trunks_build_info`). | Fechada |
 | D8 | **Melhorias pós-v1.0** geridas em `05-roadmap.md`. | Proposto |
-| D9 | **Distribuição com `cargo-dist`** (binários multi-plataforma, archives, checksums, Homebrew tap, instaladores shell/PowerShell). Docker via GitHub Actions. | Fechada |
+| D9 | **Distribuição com `cargo-dist`** (binários multi-plataforma, archives, checksums, instaladores shell/PowerShell; sem Homebrew). Docker via GitHub Actions. | Fechada |
 | D10 | **Erros com `snafu`** em todos os crates (context selectors, `Whatever` no binário, `ensure!`). | Fechada |
 | D11 | **Acesso a dados sem ORM.** A lib concreta (sqlx com SQL manual vs. sqlx + `sea-query` vs. drivers nativos) é decidida numa análise dedicada antes da Fase 1. | Em análise |
 | D12 | **Licença: MPL-2.0** (provisória). Decidir antes do primeiro release público se se alinha com o resto do `websublime` (Apache-2.0/MIT). | Em aberto |

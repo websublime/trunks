@@ -371,7 +371,7 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 
 ## 13. Build e release
 
-- `cargo-dist` (D9) para `x86_64/aarch64 × linux-gnu/linux-musl/darwin/windows`; archives `trunks-<target>.tar.xz` (zip em Windows), `sha256.sum`, instaladores `shell`/`powershell`, Homebrew tap (`dist` gere a formula).
+- `cargo-dist` (D9) para `x86_64/aarch64 × linux-gnu/linux-musl/darwin/windows`; archives `trunks-<target>.tar.xz` (zip em Windows), `sha256.sum`, instaladores `shell`/`powershell`. Sem Homebrew (D9).
 - Docker: `Dockerfile` multi-stage (`rust:1.xx-bookworm` → `gcr.io/distroless/cc`, ou musl → `distroless/static`); `stdio.Dockerfile` sobre `ghcr.io/astral-sh/uv:debian` + Node 20 (idêntico). Tags `vX`, `latest`, `vX-stdio`, `latest-stdio`; multi-arch.
 - Versão via `env!("CARGO_PKG_VERSION")` + `git describe` injectado por `build.rs` (`vergen`); `/metadata` devolve `v`-prefixed.
 - `docker-compose.yaml` e `docker-compose.prod.yaml` mantêm-se com a imagem trocada.
