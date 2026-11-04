@@ -101,65 +101,80 @@ pub async fn create_server(
     let now: DateTime<Utc> = Utc::now();
     with_pool!(db, |p| {
         let mut tx = p.begin().await?;
-        if replace {
-            let existing: Option<i64> = sqlx::query_scalar(SERVER_ID_BY_NAME)
+        let result: Result<ServerRow> = async {
+            if replace {
+                let existing: Option<i64> = sqlx::query_scalar(SERVER_ID_BY_NAME)
+                    .bind(&server.name)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                if let Some(id) = existing {
+                    delete_entities!(tx, id);
+                }
+            }
+            let row: ServerRow = sqlx::query_as(INSERT_SERVER)
+                .bind(now)
                 .bind(&server.name)
-                .fetch_optional(&mut *tx)
+                .bind(&server.transport)
+                .bind(true)
+                .bind(&server.description)
+                .bind(Json(server.config.clone()))
+                .bind(&server.session_mode)
+                .fetch_one(&mut *tx)
                 .await?;
-            if let Some(id) = existing {
-                delete_entities!(tx, id);
+            for t in tools {
+                sqlx::query(INSERT_TOOL)
+                    .bind(now)
+                    .bind(&t.name)
+                    .bind(true)
+                    .bind(&t.description)
+                    .bind(json(t.input_schema.as_ref()))
+                    .bind(json(t.annotations.as_ref()))
+                    .bind(row.id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            for pr in prompts {
+                sqlx::query(INSERT_PROMPT)
+                    .bind(now)
+                    .bind(&pr.name)
+                    .bind(true)
+                    .bind(&pr.description)
+                    .bind(json(pr.arguments.as_ref()))
+                    .bind(row.id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            for r in resources {
+                sqlx::query(INSERT_RESOURCE)
+                    .bind(now)
+                    .bind(&r.uri)
+                    .bind(&r.original_uri)
+                    .bind(&r.name)
+                    .bind(true)
+                    .bind(&r.description)
+                    .bind(&r.mime_type)
+                    .bind(json(r.annotations.as_ref()))
+                    .bind(json(r.meta.as_ref()))
+                    .bind(row.id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            Ok(row)
+        }
+        .await;
+        // Release the write lock deterministically: a transaction dropped with a pending
+        // rollback can make the next `begin()` on another pooled connection fail with
+        // SQLITE_BUSY instead of waiting.
+        match result {
+            Ok(row) => {
+                tx.commit().await?;
+                Ok(row)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
             }
         }
-        let row: ServerRow = sqlx::query_as(INSERT_SERVER)
-            .bind(now)
-            .bind(&server.name)
-            .bind(&server.transport)
-            .bind(true)
-            .bind(&server.description)
-            .bind(Json(server.config.clone()))
-            .bind(&server.session_mode)
-            .fetch_one(&mut *tx)
-            .await?;
-        for t in tools {
-            sqlx::query(INSERT_TOOL)
-                .bind(now)
-                .bind(&t.name)
-                .bind(true)
-                .bind(&t.description)
-                .bind(json(t.input_schema.as_ref()))
-                .bind(json(t.annotations.as_ref()))
-                .bind(row.id)
-                .execute(&mut *tx)
-                .await?;
-        }
-        for pr in prompts {
-            sqlx::query(INSERT_PROMPT)
-                .bind(now)
-                .bind(&pr.name)
-                .bind(true)
-                .bind(&pr.description)
-                .bind(json(pr.arguments.as_ref()))
-                .bind(row.id)
-                .execute(&mut *tx)
-                .await?;
-        }
-        for r in resources {
-            sqlx::query(INSERT_RESOURCE)
-                .bind(now)
-                .bind(&r.uri)
-                .bind(&r.original_uri)
-                .bind(&r.name)
-                .bind(true)
-                .bind(&r.description)
-                .bind(&r.mime_type)
-                .bind(json(r.annotations.as_ref()))
-                .bind(json(r.meta.as_ref()))
-                .bind(row.id)
-                .execute(&mut *tx)
-                .await?;
-        }
-        tx.commit().await?;
-        Ok(row)
     })
 }
 
@@ -169,10 +184,25 @@ pub async fn delete_server(db: &Db, name: &str) -> Result<bool> {
         let mut tx = p.begin().await?;
         let existing: Option<i64> =
             sqlx::query_scalar(SERVER_ID_BY_NAME).bind(name).fetch_optional(&mut *tx).await?;
-        let Some(id) = existing else { return Ok(false) };
-        delete_entities!(tx, id);
-        tx.commit().await?;
-        Ok(true)
+        let Some(id) = existing else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+        let result: Result<()> = async {
+            delete_entities!(tx, id);
+            Ok(())
+        }
+        .await;
+        match result {
+            Ok(()) => {
+                tx.commit().await?;
+                Ok(true)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
     })
 }
 
