@@ -382,7 +382,7 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 |---|---|
 | ~~`rmcp` não propaga `http::request::Parts`/extensions para o `ServerHandler`~~ | **Resolvido** — Spike S1 (`docs/spikes/S1-rmcp-principal.md`): propaga por pedido em ambos os modos de sessão; cliente `rmcp` e `mcp-remote` verificados. |
 | `rmcp` `auth` não cobre DCR ou não deixa controlar `state` | Spike S3. Plano B: `oauth2` crate directo (~200 LOC). |
-| Camada de DB sobre DBs legacy (tipos SQLite com afinidade estranha, timestamps em texto) | Resolvido pelos protótipos de `06-analise-db.md` (ambas as fixtures lidas sem workarounds com `sqlx` nativo). Resta o Spike S2 para a baseline migration `IF NOT EXISTS`. |
+| ~~Camada de DB sobre DBs legacy~~ | **Resolvido** — `trunks-db` adopta as fixtures legacy nos dois backends (migrações `IF NOT EXISTS` + `normalize_legacy`, testes em CI com Postgres 16). |
 | Protocolo: clientes antigos (2025-xx) vs `rmcp` 3.8 default 2026-07-28 | `legacy_session_mode = true` no `StreamableHttpServerConfig` para servir clientes anteriores com sessão; testar com `mcp-remote`, Cursor, Claude Code. |
 | SSE (D4) | Decisão explícita antes da fase 3. |
 | Regressão silenciosa de contrato | Suite de conformidade escrita **antes** de implementar cada área (TDD por contrato). |

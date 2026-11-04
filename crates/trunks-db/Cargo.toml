@@ -1,6 +1,6 @@
 [package]
 name = "trunks-db"
-description = "Trunks data access layer (SQLite and PostgreSQL, explicit SQL, migrations)"
+description = "Trunks data access layer: sqlx over SQLite and PostgreSQL, explicit SQL, migrations"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,13 +11,17 @@ publish.workspace = true
 [dependencies]
 trunks-types = { workspace = true }
 trunks-core = { workspace = true }
+sqlx = { workspace = true }
 snafu = { workspace = true }
 secrecy = { workspace = true }
 serde_json = { workspace = true }
+chrono = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+tokio = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

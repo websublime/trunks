@@ -28,7 +28,7 @@ Objectivo: provar as três hipóteses técnicas e deixar o workspace a compilar 
 |---|---|---|
 | S1 `rmcp` server | **Feito** — `docs/spikes/S1-rmcp-principal.md`, código em `spikes/s1-rmcp-principal/`. 21 checks verdes: principal por pedido em ambos os modos de sessão, cliente `rmcp` e `mcp-remote`. Falta só smoke com Claude Code/Cursor reais (Fase 7). | Sem plano B necessário. |
 | D11 análise DB | **Feito** — `06-analise-db.md`: 4 protótipos contra as fixtures SQLite e Postgres; decisão `sqlx` nativo com `$N`. | Decisão registada em `01-produto.md`. |
-| S2 DB | Structs das 10 tabelas em `trunks-db`; abrir `tests/fixtures/legacy-*.sqlite` e um Postgres carregado com `legacy-enterprise.sql`; ler todas as linhas; baseline migration `IF NOT EXISTS` no-op sobre ambas + `normalize_legacy`. (Leitura de 4 tabelas já provada pelos protótipos.) | Zero erros de mapeamento; migração no-op numa DB legacy. |
+| S2 DB | **Feito** — `trunks-db` real: `Db` enum, `connect`, migrações `0001_baseline` (IF NOT EXISTS) / `0002_normalize_legacy` / `0003_entity_uniqueness` por dialecto, structs das 10 tabelas, repos de leitura + `ConfigStore`. Testes contra as fixtures SQLite e Postgres (CI com serviço `postgres:16`). `trunks start` já liga, migra e valida o modo. | Zero erros de mapeamento; segunda migração é no-op; mismatch de modo recusado. |
 | S3 OAuth | Com `wiremock` como authorization server: discovery → DCR → authorization URL com `state` nosso → troca de code → refresh. Via `rmcp::transport::auth`; se insuficiente, `oauth2` crate. | Fluxo completo em teste automático; decisão `rmcp auth` vs `oauth2` registada. |
 | Workspace | Cargo workspace com os 7 crates vazios, lints (`clippy -D warnings`, `rustfmt`, `cargo-deny`), `snafu` como base de erros em cada crate, CI GitHub Actions (lint, test, build linux/mac/win), `cargo dist init` com `dist-workspace.toml` (targets, instaladores), `xtask build-dashboard`, `web/dashboard` copiado e a buildar. | `cargo test` e CI verdes; `trunks --version` imprime versão; `dist plan` lista os artefactos. |
 
@@ -165,4 +165,4 @@ Uma fase só fecha quando **todos** se verificam:
 2. ~~Repositório, workspace, `snafu`, `cargo dist`, CI~~ feito.
 3. ~~Fixtures legacy~~ feitas (sintéticas; regenerar com binário real quando possível).
 4. ~~Spike S1~~ feito — sem plano B.
-5. Spike S2 (`trunks-db` sobre as fixtures) e S3 (OAuth) em paralelo.
+5. ~~Spike S2~~ feito. Spike S3 (OAuth upstream com `wiremock`).

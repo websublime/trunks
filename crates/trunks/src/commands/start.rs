@@ -9,6 +9,9 @@ use clap::Args as ClapArgs;
 use snafu::{ResultExt, Whatever};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
+use trunks_core::ports::ConfigStore as _;
+use trunks_db::Db;
+use trunks_db::repos::config::DbConfigStore;
 use trunks_types::ServerMode;
 
 #[derive(Debug, ClapArgs)]
@@ -24,6 +27,10 @@ pub struct Args {
     /// Operating mode: development | enterprise
     #[arg(long, env = "TRUNKS_MODE", default_value = "development", value_parser = parse_mode)]
     mode: ServerMode,
+
+    /// Database URL: sqlite://<path> or postgres://user:pass@host:port/db
+    #[arg(long, env = "TRUNKS_DATABASE_URL", default_value = "sqlite://trunks.db")]
+    database_url: String,
 }
 
 fn parse_mode(s: &str) -> Result<ServerMode, String> {
@@ -33,7 +40,38 @@ fn parse_mode(s: &str) -> Result<ServerMode, String> {
 
 pub async fn run(args: Args) -> Result<(), Whatever> {
     init_tracing();
-    tracing::info!(mode = %args.mode, "starting");
+    tracing::info!(mode = %args.mode, db = %trunks_db::redact(&args.database_url), "starting");
+
+    let db =
+        Db::connect(&args.database_url, 8).await.whatever_context("database connection failed")?;
+    let applied = db.migrate().await.whatever_context("database migration failed")?;
+    if !applied.versions.is_empty() {
+        tracing::info!(versions = ?applied.versions, "applied migrations");
+    }
+    let config = DbConfigStore(db.clone());
+    match config.get().await.whatever_context("reading server configuration")? {
+        Some(cfg) if cfg.initialized && cfg.mode != args.mode => {
+            snafu::whatever!(
+                "server is already initialized in {} mode, cannot start in {} mode",
+                cfg.mode,
+                args.mode
+            );
+        }
+        Some(_) => {}
+        None if args.mode == ServerMode::Development => {
+            config
+                .init(ServerMode::Development)
+                .await
+                .whatever_context("initializing development mode")?;
+            tracing::info!("initialized in development mode");
+        }
+        None => {
+            println!(
+                "Server is not initialized. Run `trunks init-server` to initialize it in enterprise mode."
+            );
+        }
+    }
+
     let host = if args.host.is_empty() { "0.0.0.0" } else { args.host.as_str() };
     let addr: SocketAddr =
         format!("{host}:{}", args.port).parse().whatever_context("invalid bind address")?;

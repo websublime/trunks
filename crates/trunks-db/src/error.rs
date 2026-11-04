@@ -3,17 +3,28 @@ use snafu::Snafu;
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
 pub enum Error {
-    #[snafu(display("failed to connect to the database: {reason}"))]
-    Connect { reason: String },
-    #[snafu(display("migration '{name}' failed: {reason}"))]
-    Migration { name: String, reason: String },
-    #[snafu(display("query failed: {reason}"))]
-    Query { reason: String },
+    #[snafu(display("unsupported database URL '{url}': expected sqlite:// or postgres://"))]
+    UnsupportedUrl { url: String },
+    #[snafu(display("failed to connect to {backend}: {source}"))]
+    Connect { backend: &'static str, source: sqlx::Error },
+    #[snafu(display("migration failed: {source}"))]
+    Migrate { source: sqlx::migrate::MigrateError },
+    #[snafu(display("query failed: {source}"))]
+    Query { source: sqlx::Error },
     #[snafu(display("row not found"))]
     NotFound,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+impl From<sqlx::Error> for Error {
+    fn from(source: sqlx::Error) -> Self {
+        match source {
+            sqlx::Error::RowNotFound => Self::NotFound,
+            source => Self::Query { source },
+        }
+    }
+}
 
 impl From<Error> for trunks_core::Error {
     fn from(e: Error) -> Self {
