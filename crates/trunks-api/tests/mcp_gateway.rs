@@ -30,10 +30,12 @@ async fn boot(mode: ServerMode) -> (String, Option<String>, tempfile::TempDir) {
     let db = Db::connect(&format!("sqlite://{}/db.sqlite", dir.path().display()), 4).await.unwrap();
     db.migrate().await.unwrap();
     let bin = trunks_testing::fake_upstream_bin().to_string_lossy().into_owned();
+    // JSON-encoded (Windows paths contain backslashes) and SQL-quoted.
+    let config = serde_json::json!({"command": bin}).to_string().replace('\'', "''");
     // seed directly (registration via the API arrives in Phase 2b)
     let seed = |name: &str| {
         format!(
-            "INSERT INTO mcp_servers (created_at, updated_at, name, transport, enabled, description, config, session_mode) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','{name}','stdio',1,'',json('{{\"command\":\"{bin}\"}}'),'stateful')"
+            "INSERT INTO mcp_servers (created_at, updated_at, name, transport, enabled, description, config, session_mode) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','{name}','stdio',1,'',json('{config}'),'stateful')"
         )
     };
     trunks_db::with_pool!(&db, |p| {
