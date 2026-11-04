@@ -44,6 +44,8 @@ enum Command {
     List(commands::list::Args),
     /// Show how to call a tool (input schema)
     Usage(commands::usage::Args),
+    /// Invoke a tool through the gateway
+    Invoke(commands::invoke::Args),
     /// Initialize a server running in enterprise mode (creates the admin user)
     InitServer,
     /// Store a user access token for this registry
@@ -81,6 +83,7 @@ async fn run(cli: Cli) -> Result<(), Whatever> {
         Command::Start(_) => unreachable!("handled above"),
         Command::List(args) => commands::list::run(&client, args).await,
         Command::Usage(args) => commands::usage::run(&client, args).await,
+        Command::Invoke(args) => commands::invoke::run(&client, args).await,
         Command::InitServer => commands::auth::init_server(&client, &registry).await,
         Command::Login(args) => commands::auth::login(&client, &registry, args).await,
         Command::Version => {

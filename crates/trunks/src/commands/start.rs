@@ -12,10 +12,14 @@ use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
 use trunks_api::AppState;
+use trunks_api::mcp::{McpMounts, McpOptions};
 use trunks_core::catalog::Catalog;
+use trunks_core::gateway::GatewayState;
 use trunks_core::identity::IdentityService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
+use trunks_core::sessions::{SessionManager, SessionOptions};
+use trunks_core::upstream::ConnectOptions;
 use trunks_db::Db;
 use trunks_db::Store;
 use trunks_types::ServerMode;
@@ -41,6 +45,18 @@ pub struct Args {
     /// Expose Prometheus metrics at /metrics (default: on in enterprise mode, off in development)
     #[arg(long, env = "TRUNKS_METRICS_ENABLED")]
     metrics: Option<bool>,
+
+    /// Timeout (seconds) for the MCP initialize handshake with upstream servers
+    #[arg(long, env = "TRUNKS_UPSTREAM_INIT_TIMEOUT_SEC", default_value_t = 30)]
+    upstream_init_timeout_sec: u64,
+
+    /// Close stateful upstream sessions idle for this many seconds (0 = never)
+    #[arg(long, env = "TRUNKS_SESSION_IDLE_TIMEOUT_SEC", default_value_t = 0)]
+    session_idle_timeout_sec: u64,
+
+    /// Host header values accepted on the MCP endpoints (comma-separated; "*" disables the check)
+    #[arg(long, env = "TRUNKS_ALLOWED_HOSTS", value_delimiter = ',')]
+    allowed_hosts: Vec<String>,
 }
 
 fn parse_mode(s: &str) -> Result<ServerMode, String> {
@@ -63,45 +79,11 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
     let mode = ModeService::load(store.clone(), identity.clone())
         .await
         .whatever_context("reading server configuration")?;
-    match mode.current() {
-        Some(current) if current != args.mode => {
-            snafu::whatever!(
-                "server is already initialized in {current} mode, cannot start in {} mode",
-                args.mode
-            );
-        }
-        Some(_) => {}
-        None if args.mode == ServerMode::Development => {
-            mode.init(ServerMode::Development)
-                .await
-                .whatever_context("initializing development mode")?;
-            tracing::info!("initialized in development mode");
-        }
-        None => {
-            println!(
-                "Server is not initialized. Run `trunks init-server` to initialize it in enterprise mode."
-            );
-        }
-    }
+    check_mode(&mode, args.mode).await?;
 
     let catalog = Catalog::empty();
     let snap = catalog.reload(store.as_ref()).await.whatever_context("loading the catalog")?;
-    let sse: Vec<_> = snap
-        .servers
-        .values()
-        .filter(|s| s.enabled && !s.config.transport().is_supported())
-        .map(|s| s.name.to_string())
-        .collect();
-    if !sse.is_empty() {
-        if std::env::var("TRUNKS_IGNORE_SSE_SERVERS").as_deref() == Ok("1") {
-            tracing::warn!(servers = ?sse, "ignoring enabled servers with the unsupported sse transport");
-        } else {
-            snafu::whatever!(
-                "servers {:?} use the unsupported 'sse' transport; re-register them as streamable_http, disable them, or set TRUNKS_IGNORE_SSE_SERVERS=1",
-                sse
-            );
-        }
-    }
+    guard_sse(&snap)?;
     tracing::info!(
         servers = snap.servers.len(),
         tools = snap.tools.len(),
@@ -112,12 +94,39 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
     );
 
     let metrics_enabled = args.metrics.unwrap_or(args.mode.is_enterprise());
+    let metrics = metrics_enabled.then(|| Metrics::new(&trunks_types::version::version()));
+    let sessions = SessionManager::new(SessionOptions {
+        connect: ConnectOptions {
+            init_timeout: std::time::Duration::from_secs(args.upstream_init_timeout_sec.max(1)),
+        },
+        idle_timeout: (args.session_idle_timeout_sec > 0)
+            .then(|| std::time::Duration::from_secs(args.session_idle_timeout_sec)),
+        ..SessionOptions::default()
+    });
+    let gateway = Arc::new(GatewayState {
+        catalog: catalog.clone(),
+        sessions: sessions.clone(),
+        metrics: metrics.clone(),
+        version: trunks_types::version::version(),
+    });
     let state = AppState {
         catalog,
+        gateway: gateway.clone(),
+        mcp: McpMounts::new(
+            gateway,
+            McpOptions {
+                allowed_hosts: args
+                    .allowed_hosts
+                    .iter()
+                    .filter(|h| !h.is_empty())
+                    .cloned()
+                    .collect(),
+            },
+        ),
         registry: store.clone(),
         identity,
         mode,
-        metrics: metrics_enabled.then(|| Metrics::new(&trunks_types::version::version())),
+        metrics,
     };
 
     let host = if args.host.is_empty() { "0.0.0.0" } else { args.host.as_str() };
@@ -134,8 +143,55 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .whatever_context("server error")?;
+    sessions.shutdown().await;
     tracing::info!("server stopped");
     Ok(())
+}
+
+/// Refuses to start in a mode other than the one the database was initialized in;
+/// auto-initializes development mode on a fresh database.
+async fn check_mode(mode: &ModeService, requested: ServerMode) -> Result<(), Whatever> {
+    match mode.current() {
+        Some(current) if current != requested => {
+            snafu::whatever!(
+                "server is already initialized in {current} mode, cannot start in {requested} mode"
+            );
+        }
+        Some(_) => {}
+        None if requested == ServerMode::Development => {
+            mode.init(ServerMode::Development)
+                .await
+                .whatever_context("initializing development mode")?;
+            tracing::info!("initialized in development mode");
+        }
+        None => {
+            println!(
+                "Server is not initialized. Run `trunks init-server` to initialize it in enterprise mode."
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Enabled servers with the unsupported `sse` transport stop the start-up unless
+/// `TRUNKS_IGNORE_SSE_SERVERS=1`.
+fn guard_sse(snap: &trunks_core::catalog::Snapshot) -> Result<(), Whatever> {
+    let sse: Vec<_> = snap
+        .servers
+        .values()
+        .filter(|s| s.enabled && !s.config.transport().is_supported())
+        .map(|s| s.name.to_string())
+        .collect();
+    if sse.is_empty() {
+        return Ok(());
+    }
+    if std::env::var("TRUNKS_IGNORE_SSE_SERVERS").as_deref() == Ok("1") {
+        tracing::warn!(servers = ?sse, "ignoring enabled servers with the unsupported sse transport");
+        return Ok(());
+    }
+    snafu::whatever!(
+        "servers {sse:?} use the unsupported 'sse' transport; re-register them as streamable_http, disable them, or set TRUNKS_IGNORE_SSE_SERVERS=1"
+    )
 }
 
 fn init_tracing() {

@@ -47,9 +47,9 @@ Objectivo: `trunks start` arranca sobre uma DB legacy existente (normalizada por
 
 Entregue: `trunks-types::api` (D13), `trunks-core::{domain,catalog,identity,mode,metrics}` com ports `async_trait`, `trunks-db::Store` (ports sobre `Db`), `trunks-api` (middleware `require_initialized`/`user_auth`/`require_admin`/`require_enterprise`, `/health` `/metadata` `/init` `/metrics`, `GET /api/v0/{servers,tools,tool,prompts,prompt,resources,users/whoami}`), CLI (`start` com catálogo e validação SSE, `list`, `usage`, `init-server`, `login`, config `~/.config/trunks/config.toml` 0600). Testes: domínio (catálogo/grupos), `trunks-db` nas duas DBs, API em dev e enterprise sobre as fixtures.
 
-### Fase 2 — Gateway MCP e registry read-write (3 sem.)
+### Fase 2 — Gateway MCP e registry read-write (3 sem.) — **2a feita, 2b em curso**
 
-Objectivo: fluxo principal completo em modo development.
+Objectivo: fluxo principal completo em modo development. Dividida em dois PRs: **2a** upstream + sessões + `/mcp` + invocação REST sobre o catálogo existente; **2b** registry read-write + CLI.
 
 - `trunks-core::upstream`: `UpstreamConn::connect` para `stdio` (TokioChildProcess, env, stderr→tracing, process group) e `streamable_http` (headers, bearer; sem OAuth ainda); timeout de `initialize` e mensagens de erro accionáveis.
 - `trunks-core::sessions`: `SessionManager` stateless/stateful, sweeper de idle, invalidação tipada, shutdown.
@@ -60,6 +60,10 @@ Objectivo: fluxo principal completo em modo development.
 - Testes: strip de headers, filtro em modo dev, session manager (stateless/stateful/idle/invalidação), registo/deregisto/enable, handlers de tool/prompt/resource; e2e modo dev; harness diferencial; smoke manual com Claude Code e Cursor.
 
 **Saída:** Trunks utilizável pelo developer individual (modo dev, sem OAuth, sem grupos).
+
+Entregue em 2a: `trunks-core::upstream` (`UpstreamConn` stdio/streamable_http construído só da configuração — nenhum header downstream chega ao upstream; timeout de `initialize` com mensagem accionável; `sse` recusado), `trunks-core::sessions` (`SessionManager` stateless/stateful com lock por servidor, sweeper de idle, invalidação em erro de transporte, shutdown), `trunks-core::gateway` (`GatewayHandler` global e por grupo, principal fail-closed a partir de `Parts`, reescrita de nomes/URIs, `Invoker` partilhado com a REST, métricas), `trunks-api` (`ANY /mcp`, `ANY /v0/groups/{g}/mcp` com cache de handlers, `POST /api/v0/tools/invoke`, `/prompts/render`, `/resources/{get,read}`), CLI `invoke` (texto/JSON; gravação de ficheiros binários fica para 2b), crate `trunks-testing` (upstream falso stdio/HTTP). Testes: 6 de gateway no core, 2 e2e (dev + enterprise com allow-lists e grupos).
+
+Fica para 2b: `trunks-core::registry` (register/deregister/enable/disable), `POST/DELETE /servers`, `GET /server_configs`, CLI `register`/`deregister`/`enable`/`disable`/`export`/`get`.
 
 ### Fase 3 — Enterprise: identidades e controlo de acesso (1,5 sem.)
 
@@ -167,4 +171,5 @@ Uma fase só fecha quando **todos** se verificam:
 2. ~~Repositório, workspace, `snafu`, `cargo dist`, CI~~ feito.
 3. ~~Fixtures legacy~~ feitas (sintéticas; regenerar com binário real quando possível).
 4. ~~Spike S1~~ feito — sem plano B.
-5. ~~Spike S3~~ feito. **Fase 0 concluída** — seguir para a Fase 1 (`03-plano.md` §3).
+5. ~~Spike S3~~ feito. **Fase 0 concluída.**
+6. ~~Fase 1~~ feita. ~~Fase 2a~~ feita — seguir para a Fase 2b (registry read-write + CLI).

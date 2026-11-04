@@ -6,6 +6,7 @@
 //! (`/mcp`, `/v0/groups/{name}/mcp`) arrive in Phase 2.
 
 pub mod error;
+pub mod mcp;
 pub mod middleware;
 pub mod routes;
 pub mod state;
@@ -21,6 +22,7 @@ pub use state::AppState;
 pub fn router(state: AppState) -> Router {
     let api_v0 = Router::new()
         .merge(routes::registry::user_router())
+        .merge(routes::invoke::router())
         .merge(
             routes::registry::enterprise_user_router()
                 .layer(from_fn(middleware::require_enterprise)),
@@ -28,7 +30,10 @@ pub fn router(state: AppState) -> Router {
         .layer(from_fn_with_state(state.clone(), middleware::user_auth))
         .layer(from_fn_with_state(state.clone(), middleware::require_initialized));
 
-    let mut app = Router::new().merge(routes::public::router()).nest("/api/v0", api_v0);
+    let mut app = Router::new()
+        .merge(routes::public::router())
+        .merge(mcp::router(&state))
+        .nest("/api/v0", api_v0);
     if state.metrics.is_some() {
         app = app.route("/metrics", get(routes::public::metrics));
     }

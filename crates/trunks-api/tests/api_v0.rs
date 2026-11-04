@@ -11,10 +11,13 @@ use http_body_util::BodyExt as _;
 use serde_json::Value;
 use tower::ServiceExt as _;
 use trunks_api::AppState;
+use trunks_api::mcp::{McpMounts, McpOptions};
 use trunks_core::catalog::Catalog;
+use trunks_core::gateway::GatewayState;
 use trunks_core::identity::IdentityService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
+use trunks_core::sessions::{SessionManager, SessionOptions};
 use trunks_db::{Db, Store};
 
 fn fixtures() -> PathBuf {
@@ -39,12 +42,21 @@ async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
     let mode = ModeService::load(store.clone(), identity.clone()).await.unwrap();
     let catalog = Catalog::empty();
     catalog.reload(store.as_ref()).await.unwrap();
+    let metrics = metrics.then(|| Metrics::new("vtest"));
+    let gateway = Arc::new(GatewayState {
+        catalog: catalog.clone(),
+        sessions: SessionManager::new(SessionOptions::default()),
+        metrics: metrics.clone(),
+        version: "vtest".into(),
+    });
     let state = AppState {
         catalog,
+        gateway: gateway.clone(),
+        mcp: McpMounts::new(gateway, McpOptions::default()),
         registry: store,
         identity,
         mode,
-        metrics: metrics.then(|| Metrics::new("vtest")),
+        metrics,
     };
     App { router: trunks_api::router(state), _dir: dir }
 }

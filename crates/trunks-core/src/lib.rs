@@ -10,9 +10,12 @@
 pub mod catalog;
 pub mod domain;
 pub mod error;
+pub mod gateway;
 pub mod identity;
 pub mod metrics;
 pub mod mode;
 pub mod ports;
+pub mod sessions;
+pub mod upstream;
 
 pub use error::{Error, Result};

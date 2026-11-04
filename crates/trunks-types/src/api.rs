@@ -122,3 +122,49 @@ pub struct ByNameQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
+
+/// `POST /api/v0/tools/invoke` — `name` plus the tool's arguments as the rest of the object.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolInvokeRequest {
+    pub name: CanonicalName,
+    #[serde(flatten, default)]
+    pub arguments: serde_json::Map<String, Value>,
+}
+
+/// `POST /api/v0/tools/invoke` response — the MCP `CallToolResult` as JSON.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolInvokeResult {
+    #[serde(default, rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
+    #[serde(default, rename = "isError", skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
+    pub content: Vec<Value>,
+    #[serde(default, rename = "structuredContent", skip_serializing_if = "Option::is_none")]
+    pub structured_content: Option<Value>,
+}
+
+/// `POST /api/v0/prompts/render`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptRenderRequest {
+    pub name: CanonicalName,
+    #[serde(default)]
+    pub arguments: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptRenderResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub messages: Vec<Value>,
+}
+
+/// `POST /api/v0/resources/get` and `/resources/read`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResourceRequest {
+    pub uri: ResourceUri,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResourceReadResult {
+    pub contents: Vec<Value>,
+}

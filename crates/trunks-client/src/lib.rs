@@ -6,7 +6,8 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 use snafu::{ResultExt, Snafu};
 use trunks_types::api::{
-    InitRequest, InitResponse, McpServer, Prompt, Resource, ServerMetadata, Tool, User,
+    InitRequest, InitResponse, McpServer, Prompt, Resource, ServerMetadata, Tool, ToolInvokeResult,
+    User,
 };
 use trunks_types::{ApiErrorResponse, ServerMode};
 
@@ -98,6 +99,20 @@ impl Client {
 
     pub async fn list_resources(&self, server: Option<&str>) -> Result<Vec<Resource>> {
         self.get("api/v0/resources", &opt("server", server)).await
+    }
+
+    /// `POST /api/v0/tools/invoke`
+    pub async fn invoke_tool(
+        &self,
+        name: &str,
+        arguments: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<ToolInvokeResult> {
+        let mut body = arguments;
+        body.insert("name".into(), serde_json::Value::String(name.to_owned()));
+        let url = self.join("api/v0/tools/invoke")?;
+        let res =
+            self.authorized(self.http.post(url).json(&body)).send().await.context(HttpSnafu)?;
+        Self::decode(res).await
     }
 
     pub async fn whoami(&self) -> Result<User> {

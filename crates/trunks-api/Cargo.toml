@@ -13,6 +13,8 @@ trunks-types = { workspace = true }
 trunks-core = { workspace = true }
 trunks-dashboard = { workspace = true }
 axum = { workspace = true }
+rmcp = { workspace = true }
+dashmap = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 http = { workspace = true }
@@ -28,6 +30,9 @@ tokio = { workspace = true }
 http-body-util = "0.1"
 trunks-db = { workspace = true }
 tempfile = { workspace = true }
+trunks-testing = { path = "../trunks-testing" }
+reqwest = { workspace = true }
+sqlx = { workspace = true }
 pretty_assertions = { workspace = true }
 
 [lints]

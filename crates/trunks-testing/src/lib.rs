@@ -1,0 +1,186 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::missing_panics_doc)]
+
+//! A small, deterministic upstream MCP server for tests.
+//!
+//! Tools: `echo` (returns its `text` argument), `echo_headers` (returns the HTTP headers the
+//! upstream saw — proves nothing downstream leaks through the gateway), `fail` (returns an
+//! MCP tool error). Prompt: `greet(name)`. Resource: `mem://hello`.
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use rmcp::RoleServer;
+use rmcp::handler::server::ServerHandler;
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData,
+    GetPromptRequestParams, GetPromptResponse, GetPromptResult, Implementation, JsonObject,
+    ListPromptsResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams, Prompt,
+    PromptArgument, PromptMessage, ReadResourceRequestParams, ReadResourceResponse,
+    ReadResourceResult, Resource, ResourceContents, Role, ServerCapabilities, ServerConfig, Tool,
+};
+use rmcp::service::RequestContext;
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
+
+#[derive(Debug, Clone, Default)]
+pub struct FakeUpstream;
+
+fn schema(props: &serde_json::Value) -> Arc<JsonObject> {
+    Arc::new(
+        serde_json::json!({"type": "object", "properties": props}).as_object().cloned().unwrap(),
+    )
+}
+
+impl ServerHandler for FakeUpstream {
+    fn get_info(&self) -> ServerConfig {
+        let mut info = ServerConfig::default();
+        info.capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_prompts()
+            .enable_resources()
+            .build();
+        info.server_info = Implementation::new("fake-upstream", "0.0.0");
+        info
+    }
+
+    async fn list_tools(
+        &self,
+        _r: Option<PaginatedRequestParams>,
+        _c: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        let mut echo = Tool::new(
+            "echo",
+            "Echoes `text`",
+            schema(&serde_json::json!({"text": {"type": "string"}})),
+        );
+        echo.annotations = serde_json::from_value(serde_json::json!({"readOnlyHint": true})).ok();
+        let tools = vec![
+            echo,
+            Tool::new(
+                "echo_headers",
+                "Returns the HTTP headers this upstream received",
+                schema(&serde_json::json!({})),
+            ),
+            Tool::new("fail", "Always returns a tool error", schema(&serde_json::json!({}))),
+        ];
+        Ok(ListToolsResult { tools, ..Default::default() })
+    }
+
+    async fn call_tool(
+        &self,
+        req: CallToolRequestParams,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let result = match &*req.name {
+            "echo" => {
+                let text = req
+                    .arguments
+                    .as_ref()
+                    .and_then(|a| a.get("text"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_owned();
+                CallToolResult::success(vec![ContentBlock::text(text)])
+            }
+            "echo_headers" => {
+                let headers: Vec<String> = ctx
+                    .extensions
+                    .get::<http::request::Parts>()
+                    .map(|p| p.headers.keys().map(|k| k.as_str().to_lowercase()).collect())
+                    .unwrap_or_default();
+                CallToolResult::success(vec![ContentBlock::text(
+                    serde_json::json!(headers).to_string(),
+                )])
+            }
+            "fail" => CallToolResult::error(vec![ContentBlock::text("boom")]),
+            other => return Err(ErrorData::invalid_params(format!("unknown tool {other}"), None)),
+        };
+        Ok(CallToolResponse::Complete(result))
+    }
+
+    async fn list_prompts(
+        &self,
+        _r: Option<PaginatedRequestParams>,
+        _c: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        let mut arg = PromptArgument::new("name");
+        arg.description = Some("Who to greet".into());
+        arg.required = Some(true);
+        let prompt = Prompt::new("greet", Some("Greets someone"), Some(vec![arg]));
+        Ok(ListPromptsResult { prompts: vec![prompt], ..Default::default() })
+    }
+
+    async fn get_prompt(
+        &self,
+        req: GetPromptRequestParams,
+        _c: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResponse, ErrorData> {
+        if req.name != "greet" {
+            return Err(ErrorData::invalid_params(format!("unknown prompt {}", req.name), None));
+        }
+        let name = req
+            .arguments
+            .as_ref()
+            .and_then(|a| a.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("world")
+            .to_owned();
+        let mut r = GetPromptResult::new(vec![PromptMessage::new_text(
+            Role::User,
+            format!("Hello, {name}!"),
+        )]);
+        r.description = Some("A greeting".into());
+        Ok(GetPromptResponse::Complete(r))
+    }
+
+    async fn list_resources(
+        &self,
+        _r: Option<PaginatedRequestParams>,
+        _c: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let mut res = Resource::new("mem://hello", "hello");
+        res.mime_type = Some("text/plain".into());
+        Ok(ListResourcesResult { resources: vec![res], ..Default::default() })
+    }
+
+    async fn read_resource(
+        &self,
+        req: ReadResourceRequestParams,
+        _c: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        if req.uri != "mem://hello" {
+            return Err(ErrorData::invalid_params(format!("unknown resource {}", req.uri), None));
+        }
+        let r = ReadResourceResult::new(vec![ResourceContents::text(
+            "hello from upstream",
+            "mem://hello",
+        )]);
+        Ok(ReadResourceResponse::Complete(r))
+    }
+}
+
+/// Serves the fake upstream over Streamable HTTP on a random loopback port. Returns the MCP URL.
+pub async fn serve_http() -> String {
+    let mut config = StreamableHttpServerConfig::default();
+    config.legacy_session_mode = true;
+    let svc = StreamableHttpService::new(
+        || Ok(FakeUpstream),
+        Arc::new(LocalSessionManager::default()),
+        config,
+    );
+    let app = axum::Router::new().nest_service("/mcp", svc);
+    let listener =
+        tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}/mcp")
+}
+
+/// Path of the `fake-upstream` binary built alongside the tests (`target/<profile>/fake-upstream`).
+pub fn fake_upstream_bin() -> std::path::PathBuf {
+    let exe = std::env::current_exe().unwrap();
+    // target/<profile>/deps/<test-bin>  →  target/<profile>/fake-upstream
+    let dir = exe.parent().unwrap();
+    let dir = if dir.ends_with("deps") { dir.parent().unwrap() } else { dir };
+    dir.join(if cfg!(windows) { "fake-upstream.exe" } else { "fake-upstream" })
+}
