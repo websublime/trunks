@@ -31,6 +31,10 @@ enum What {
         #[arg(long)]
         server: Option<String>,
     },
+    /// Users of the REST API (enterprise mode)
+    Users,
+    /// MCP client identities (enterprise mode)
+    McpClients,
 }
 
 fn table(header: &[&str]) -> Table {
@@ -115,6 +119,28 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
                     x.mime_type.unwrap_or_default(),
                     x.description,
                 ]);
+            }
+            println!("{t}");
+        }
+        What::Users => {
+            let users = client.list_users().await.whatever_context("listing users")?;
+            let mut t = table(&["username", "role"]);
+            for u in users {
+                t.add_row([u.username, u.role.to_string()]);
+            }
+            println!("{t}");
+        }
+        What::McpClients => {
+            let clients = client.list_clients().await.whatever_context("listing MCP clients")?;
+            if clients.is_empty() {
+                println!("No MCP clients.");
+                return Ok(());
+            }
+            let mut t = table(&["name", "allowed servers", "description"]);
+            for c in clients {
+                let allow =
+                    if c.allow_list.is_empty() { "(none)".into() } else { c.allow_list.join(", ") };
+                t.add_row([c.name, allow, c.description]);
             }
             println!("{t}");
         }

@@ -339,7 +339,23 @@ pub struct McpClientRecord {
     pub allow_list: Vec<String>,
 }
 
+impl UserRecord {
+    #[must_use]
+    pub fn to_api(&self) -> api::User {
+        api::User { username: self.username.clone(), role: self.role }
+    }
+}
+
 impl McpClientRecord {
+    #[must_use]
+    pub fn to_api(&self) -> api::McpClient {
+        api::McpClient {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            allow_list: self.allow_list.clone(),
+        }
+    }
+
     /// `"*"` grants every server; otherwise exact name match. Malformed lists grant nothing.
     #[must_use]
     pub fn may_access(&self, server: &ServerName) -> bool {

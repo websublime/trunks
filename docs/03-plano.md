@@ -65,13 +65,15 @@ Entregue em 2a: `trunks-core::upstream` (`UpstreamConn` stdio/streamable_http co
 
 Entregue em 2b: `trunks-core::registry` (`RegistryService`: validar → connect → descobrir → transacção; `deregister`; flags de servidor e de entidades com a semântica do §4.4; invalidação de sessões; rebuild do catálogo), port `RegistryStore` de escrita e `trunks-db::repos::registry` (transacções, `RETURNING`, testado nas duas DBs), `trunks-api::routes::admin` (`POST/DELETE /servers`, `enable|disable`, `GET /server_configs`) atrás de `require_admin`, SDK (`register_server`, `deregister_server`, `set_*_enabled`, `server_configs`, `render_prompt`, `read_resource`), CLI `register` (flags e `-c` com `${VAR}`), `deregister`, `enable|disable`, `get prompt|resource`, `export`, e gravação de `image_*/audio_*/resource_*` no `invoke`. Testes: 3 e2e de registry (dev + gate admin em enterprise), escrita na DB, `envsubst`. Smoke manual do CLI contra o servidor. Em falta nesta fase: harness diferencial e smoke com Claude Code/Cursor (fica para a validação de M2).
 
-### Fase 3 — Enterprise: identidades e controlo de acesso (1,5 sem.)
+### Fase 3 — Enterprise: identidades e controlo de acesso (1,5 sem.) — **Feita**
 
 - `trunks-core::identity`: users (admin/user), mcp clients, geração/validação de tokens, allow-lists.
 - Middleware `mcp_client_auth`; `Principal::McpClient`; filtragem em `list_tools` e autorização em `call_*` (fail-closed); rejeição de tokens de user no `/mcp`.
 - `/init` em enterprise (cria admin, devolve token uma vez); `/api/v0/{clients,users}` CRUD; `/users/whoami`.
 - CLI: `init-server`, `login`, `create|delete|update mcp-client|user`, `list mcp-clients|users`.
 - Testes: filtro em enterprise, clients, users, middleware; e2e modo enterprise.
+
+Entregue: port `IdentityStore` completo e `trunks-db::repos::identity` (CRUD; violação de unicidade mapeada para 400), `IdentityService` com users/clients (validação de nomes, allow-lists e tokens; rotação; admin indelével), `trunks-api::routes::identities` (`/users*`, `/clients*` atrás de `require_enterprise` + `require_admin`), SDK, CLI `create|update|delete user|mcp-client` (flags ou `-c` com `${VAR}`) e `list users|mcp-clients`. Auth, principals, allow-lists no gateway, `/init`, `whoami`, `init-server` e `login` já existiam das fases 1–2. Testes: 3 e2e (enterprise-only, users + semântica de tokens, clients + allow-lists a aplicar em `/mcp` sem restart, rejeição de tokens de user), unit de validação. Smoke manual do CLI em enterprise.
 
 ### Fase 4 — Tool groups (1 sem.)
 
@@ -172,4 +174,4 @@ Uma fase só fecha quando **todos** se verificam:
 3. ~~Fixtures legacy~~ feitas (sintéticas; regenerar com binário real quando possível).
 4. ~~Spike S1~~ feito — sem plano B.
 5. ~~Spike S3~~ feito. **Fase 0 concluída.**
-6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2) — seguir para a Fase 3 (enterprise: identidades e controlo de acesso).
+6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2). ~~Fase 3~~ feita — seguir para a Fase 4 (tool groups).

@@ -30,6 +30,12 @@ impl From<Error> for trunks_core::Error {
     fn from(e: Error) -> Self {
         match e {
             Error::NotFound => trunks_core::Error::not_found("row"),
+            // A unique-constraint hit is a caller error (duplicate name or token), not an outage.
+            Error::Query { source: sqlx::Error::Database(db) } if db.is_unique_violation() => {
+                trunks_core::Error::invalid_input(
+                    "a record with the same unique value already exists",
+                )
+            }
             other => trunks_core::Error::store(other),
         }
     }

@@ -24,6 +24,11 @@ pub fn router(state: AppState) -> Router {
         .merge(routes::invoke::router())
         .merge(routes::admin::router().route_layer(from_fn(middleware::require_admin)))
         .merge(
+            routes::identities::router()
+                .route_layer(from_fn(middleware::require_admin))
+                .route_layer(from_fn(middleware::require_enterprise)),
+        )
+        .merge(
             routes::registry::enterprise_user_router()
                 .layer(from_fn(middleware::require_enterprise)),
         )

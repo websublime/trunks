@@ -27,6 +27,10 @@ pub mod messages {
     pub const OAUTH_NOT_SUPPORTED_YET: &str = "upstream OAuth registration is not supported yet; provide a bearer_token or headers instead";
     pub const URL_REQUIRED: &str = "url is required for the streamable_http transport";
     pub const COMMAND_REQUIRED: &str = "command is required for the stdio transport";
+    pub const USERNAME_REQUIRED: &str = "username is required";
+    pub const ADMIN_CANNOT_BE_DELETED: &str = "the admin user cannot be deleted";
+    pub const INVALID_TOKEN_FORMAT: &str =
+        "access token must be at least 8 characters long and contain no whitespace";
 }
 
 /// `{"error": "...", "code": "..."}`
