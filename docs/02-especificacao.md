@@ -155,9 +155,10 @@ pub async fn register(&self, input: RegisterServerInput, force: bool, initiated_
     -> Result<RegisterOutcome, RegistryError>;   // Registered(ServerSummary) | OAuthRequired{session_id, authorization_url, expires_at}
 pub async fn deregister(&self, name: &ServerName) -> Result<(), RegistryError>;
 pub async fn set_server_enabled(&self, name, enabled) -> Result<EnableDisableResult>;
-pub async fn set_tools_enabled(&self, entity: &str, enabled) -> Result<Vec<CanonicalName>>;   // entity = server | canonical
-pub async fn set_prompts_enabled(...); pub async fn set_resources_enabled(...);
+pub async fn set_entities_enabled(&self, kind: EntityKind, entity: &str, enabled) -> Result<Vec<String>>; // entity = server | canonical | trunks:// URI
 ```
+
+Implementação (Fase 2b): `RegistryService { store: Arc<dyn RegistryStore>, catalog, sessions, connect }`. O port `RegistryStore` ganha `create_server(NewServer, Discovered, replace)`, `delete_server`, `set_server_enabled`, `set_{tools,prompts,resources}_enabled(server_id, key?, enabled) -> nomes alterados` — cada um numa transacção. A flag do servidor **não** altera as linhas das entidades: o estado efectivo é `entity.enabled && server.enabled`, calculado no catálogo, pelo que reactivar um servidor repõe o estado individual anterior. O `register` sem OAuth rejeita (400) qualquer campo `oauth_*` com `OAUTH_NOT_SUPPORTED_YET` até à Fase 5.
 
 Invariantes (verificadas por testes):
 
@@ -165,7 +166,7 @@ Invariantes (verificadas por testes):
 2. Descoberta: `tools/list` obrigatório (falha → falha o registo); `prompts/list` e `resources/list` só se o upstream anunciar a capability e são best-effort (warn, não falham).
 3. Registo e deregisto correm numa **transacção** (servidor + entidades filhas + tokens/sessões OAuth).
 4. `force=true`: deregista o existente antes de registar; persistido na sessão OAuth pendente para repetir no `complete`.
-5. Enable/disable por entidade devolve só os nomes que mudaram de estado no nível servidor, e `[entity]` sempre no nível individual (mesmo se já estava nesse estado).
+5. Enable/disable por entidade devolve só os nomes cujo estado **efectivo** mudou no nível servidor, e `[entity]` sempre no nível individual (mesmo se já estava nesse estado). Desactivar um servidor invalida a sua sessão stateful.
 6. Resource enable/disable aceita nome de servidor **ou** URI `trunks://`; outra string → `InvalidInput`.
 7. Headers `Authorization` explícitos ganham sobre `bearer_token` (log `warn!`).
 
@@ -280,7 +281,13 @@ Contrato `/api/v0` (estável dentro de 1.x; shapes detalhados no doc interno de 
 | REST admin | + `require_admin` | `POST /servers?force=`, `POST /upstream_oauth/sessions/{id}/complete`, `DELETE /servers/{name}`, `POST /servers/{name}/enable\|disable`, `GET /server_configs`, `POST /tools/enable\|disable?entity=`, `POST /prompts/enable\|disable?entity=`, `GET/POST /clients`, `PUT/DELETE /clients/{name}` (+enterprise), `GET/POST /users`, `PUT/DELETE /users/{username}` (+enterprise), `GET/POST /tool-groups`, `GET/PUT/DELETE /tool-groups/{name}`, `GET /tool-groups/{name}/effective-tools` |
 | Dashboard API | `require_initialized`, `require_dev_mode` | `/api/dashboard/{overview,servers,tools,tool-groups,prompts,resources,diagnostics}`, `POST /servers`, `DELETE /servers/{n}`, `PATCH /{servers\|tools\|prompts}/{n}/enabled`, `POST/DELETE /tool-groups[/{n}]`, `GET /tool-groups/{n}`, `GET /oauth/callback` (HTML), `GET /oauth/session/{id}` |
 
-Erros: `{"error": string, "code"?: string}`. Mapeamento `RegistryError → StatusCode`: `NotFound→404`, `InvalidInput→400` (+`code:"upstream_oauth_required"` quando aplicável), `Unauthorized→401`, `Forbidden→403`, resto `→500` com a mensagem. Mensagens que testes/CLI dependem: `"server is not initialized"` (403), `"missing access token"`, `"invalid access token: …"`, `"user is not authorized to perform this action"`, `"this request is only allowed in enterprise mode"`, `"missing MCP client access token"`, `"invalid MCP client token"`, `"Server is already initialized"`, `"name is required"`, `"missing 'name' query parameter"`, `"tool group not found: {name}"`.
+Shapes do registry (admin):
+- `POST /servers?force=` body `RegisterServerInput {name, transport, description, url?, bearer_token?, headers{}, command?, args[], env{}, session_mode, oauth_redirect_uri?, oauth_client_id?, oauth_client_secret?, oauth_scopes[]}` → `201 {"server": McpServer}` ou `202 {"authorization_required": {session_id, authorization_url, expires_at}}` (Fase 5). `force` é booleano estrito (`true|false|1|0|t|f`, sem distinção de maiúsculas; outro valor → 400 `INVALID_FORCE_QUERY`). Nome duplicado sem `force` → 400 `server '{n}' already exists; use force to replace it`. Falha de ligação ao upstream → 500 com a razão (nada persistido).
+- `DELETE /servers/{name}` → 204; 404 se não existir.
+- `POST /servers/{name}/enable|disable` e `POST /{tools|prompts|resources}/enable|disable?entity=` → `200 EnableDisableResult {name?, tools_affected[], prompts_affected[], resources_affected[]}` (listas vazias omitidas). `entity` em falta → 400 `MISSING_ENTITY_QUERY`; entidade desconhecida → 404; para resources, uma string que não é servidor nem URI `trunks://` → 400.
+- `GET /server_configs` → `[RegisterServerInput]` **com segredos**: é o formato de `trunks export` e de `trunks register -c`.
+
+Erros: `{"error": string, "code"?: string}`. Mapeamento `RegistryError → StatusCode`: `NotFound→404`, `InvalidInput→400` (+`code:"upstream_oauth_required"` quando aplicável), `Unauthorized→401`, `Forbidden→403`, resto `→500` com a mensagem. Mensagens que testes/CLI dependem: `"server is not initialized"` (403), `"missing access token"`, `"invalid access token: …"`, `"user is not authorized to perform this action"`, `"this request is only allowed in enterprise mode"`, `"missing MCP client access token"`, `"invalid MCP client token"`, `"Server is already initialized"`, `"name is required"`, `"missing 'name' query parameter"`, `"missing 'entity' query parameter"`, `"invalid 'force' query parameter: expected true or false"`, `"url is required for the streamable_http transport"`, `"command is required for the stdio transport"`, `"the 'sse' transport is not supported; register the server as streamable_http"`, `"tool group not found: {name}"`.
 
 Middleware:
 - `require_initialized`: lê `ServerConfig` de um `watch::Receiver<Option<ServerMode>>` em memória (actualizado por `/init`), não da DB por pedido. 403 se não inicializado. Insere `ServerMode` nas extensions.
@@ -305,6 +312,8 @@ Web app: `trunks-dashboard` embebe o bundle de `web/app` (Lit + `line://ui`) com
 - `clap` derive com `#[command(display_order)]` para reproduzir os grupos "basic"/"advanced" do help.
 - Flag persistente `--registry` (default `http://127.0.0.1:8080`); precedência flag explícita > `registry_url` do ficheiro > default; TIP impresso quando a flag foi usada e o ficheiro não tem `registry_url`.
 - Ficheiro de config `~/.config/trunks/config.toml` (`registry_url`, `access_token`; XDG, `0600`).
+- `register`: `--name`, `--transport stdio|streamable-http` (inferido de `--url` quando omitido), `--description`, `--url`, `--bearer-token`, `--header NAME=VALUE`*, `--command`, `--arg ARG`*, `--env NAME=VALUE`*, `--session-mode stateless|stateful`, `--force`, `-c/--conf FILE` (JSON `RegisterServerInput`; flags sobrepõem-se ao ficheiro). `${VAR}` é expandido em todas as strings do ficheiro; variável em falta = erro. Saída: `Server <n> registered successfully!` seguida das tools/prompts/resources, ou `This server does not provide any tools, prompts or resources.`
+- `deregister <n>` → `Server <n> deregistered successfully!`. `enable|disable server|tool|prompt|resource <entity>` imprime as entidades afectadas. `get prompt <n> [--arg k=v]*`, `get resource <uri> [--read]`. `export [-d DIR]` (default `.trunks`; o directório tem de estar vazio ou não existir) escreve `servers/<n>.json` **com credenciais** e avisa.
 - `register` com fluxo OAuth: listener loopback `127.0.0.1:0` em `/oauth/callback`, abre browser (`open`/`xdg-open`/`rundll32`), espera até `expires_at`, chama `complete`.
 - `invoke`: grava `image_*/audio_*/resource_*` no CWD com a mesma tabela de extensões por MIME.
 - Saída: texto plano. `--output json` em v1.x.

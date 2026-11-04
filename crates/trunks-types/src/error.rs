@@ -20,6 +20,13 @@ pub mod messages {
     pub const INIT_DEV_OK: &str = "Server initialized successfully in development mode";
     pub const INIT_ENTERPRISE_OK: &str = "Server initialized successfully";
     pub const MISSING_NAME_QUERY: &str = "missing 'name' query parameter";
+    pub const MISSING_ENTITY_QUERY: &str = "missing 'entity' query parameter";
+    pub const INVALID_FORCE_QUERY: &str = "invalid 'force' query parameter: expected true or false";
+    pub const SSE_NOT_SUPPORTED: &str =
+        "the 'sse' transport is not supported; register the server as streamable_http";
+    pub const OAUTH_NOT_SUPPORTED_YET: &str = "upstream OAuth registration is not supported yet; provide a bearer_token or headers instead";
+    pub const URL_REQUIRED: &str = "url is required for the streamable_http transport";
+    pub const COMMAND_REQUIRED: &str = "command is required for the stdio transport";
 }
 
 /// `{"error": "...", "code": "..."}`

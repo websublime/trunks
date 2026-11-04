@@ -5,6 +5,7 @@
 
 mod commands;
 mod config;
+mod envsubst;
 
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
@@ -40,6 +41,18 @@ struct Cli {
 enum Command {
     /// Start the Trunks gateway server
     Start(commands::start::Args),
+    /// Register an upstream MCP server
+    Register(commands::register::Args),
+    /// Deregister an upstream MCP server
+    Deregister(commands::manage::DeregisterArgs),
+    /// Enable a server, tool, prompt or resource
+    Enable(commands::manage::ToggleArgs),
+    /// Disable a server, tool, prompt or resource
+    Disable(commands::manage::ToggleArgs),
+    /// Render a prompt or show/read a resource
+    Get(commands::manage::GetArgs),
+    /// Export server definitions as JSON files (includes credentials)
+    Export(commands::manage::ExportArgs),
     /// List servers, tools, prompts or resources
     List(commands::list::Args),
     /// Show how to call a tool (input schema)
@@ -81,6 +94,12 @@ async fn run(cli: Cli) -> Result<(), Whatever> {
 
     match cli.command {
         Command::Start(_) => unreachable!("handled above"),
+        Command::Register(args) => commands::register::run(&client, args).await,
+        Command::Deregister(args) => commands::manage::deregister(&client, args).await,
+        Command::Enable(args) => commands::manage::toggle(&client, args, true).await,
+        Command::Disable(args) => commands::manage::toggle(&client, args, false).await,
+        Command::Get(args) => commands::manage::get(&client, args).await,
+        Command::Export(args) => commands::manage::export(&client, args).await,
         Command::List(args) => commands::list::run(&client, args).await,
         Command::Usage(args) => commands::usage::run(&client, args).await,
         Command::Invoke(args) => commands::invoke::run(&client, args).await,

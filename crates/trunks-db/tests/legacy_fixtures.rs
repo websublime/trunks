@@ -8,7 +8,8 @@ use std::path::PathBuf;
 
 use trunks_core::ports::ConfigStore as _;
 use trunks_db::Store;
-use trunks_db::repos::{catalog, config, identity, oauth};
+use trunks_db::repos::registry::{NewPromptRow, NewResourceRow, NewServerRow, NewToolRow};
+use trunks_db::repos::{catalog, config, identity, oauth, registry};
 use trunks_db::{Db, with_pool};
 use trunks_types::ServerMode;
 
@@ -179,6 +180,94 @@ async fn assert_enterprise_fixture(db: &Db) {
     assert_eq!(tok.refresh_token.as_deref(), Some("at-refresh"));
     assert!(tok.expires_at.is_some());
     assert_eq!(oauth::pending_sessions(db).await.unwrap().len(), 1);
+}
+
+/// Registry writes on top of the enterprise fixture: register (with replace), flags, delete.
+async fn assert_registry_writes(db: &Db) {
+    let before = catalog::servers(db).await.unwrap().len();
+    let server = NewServerRow {
+        name: "newsrv".into(),
+        transport: "stdio".into(),
+        description: "d".into(),
+        config: serde_json::json!({"command": "echo", "args": [], "env": {"K": "v"}}),
+        session_mode: "stateless".into(),
+    };
+    let tools = vec![
+        NewToolRow {
+            name: "a".into(),
+            description: String::new(),
+            input_schema: Some(serde_json::json!({"type": "object"})),
+            annotations: None,
+        },
+        NewToolRow {
+            name: "b".into(),
+            description: "B".into(),
+            input_schema: None,
+            annotations: None,
+        },
+    ];
+    let prompts =
+        vec![NewPromptRow { name: "p".into(), description: String::new(), arguments: None }];
+    let resources = vec![NewResourceRow {
+        uri: "trunks://res/newsrv/bWVtOi8vaGVsbG8".into(),
+        original_uri: "mem://hello".into(),
+        name: "hello".into(),
+        description: String::new(),
+        mime_type: Some("text/plain".into()),
+        annotations: None,
+        meta: None,
+    }];
+    let row =
+        registry::create_server(db, &server, &tools, &prompts, &resources, false).await.unwrap();
+    assert!(row.enabled);
+    assert_eq!(row.config.0["env"]["K"], "v");
+    assert_eq!(catalog::servers(db).await.unwrap().len(), before + 1);
+    assert_eq!(catalog::tools_by_server(db, row.id).await.unwrap().len(), 2);
+
+    // duplicate without replace → unique violation; with replace → new id, old entities gone
+    assert!(
+        registry::create_server(db, &server, &tools, &prompts, &resources, false).await.is_err()
+    );
+    let row2 = registry::create_server(db, &server, &tools[..1], &[], &[], true).await.unwrap();
+    assert_ne!(row.id, row2.id);
+    assert_eq!(catalog::servers(db).await.unwrap().len(), before + 1);
+    assert_eq!(catalog::tools_by_server(db, row.id).await.unwrap().len(), 0);
+    assert_eq!(catalog::tools_by_server(db, row2.id).await.unwrap().len(), 1);
+
+    // flags
+    assert_eq!(registry::set_server_enabled(db, "newsrv", false).await.unwrap(), Some(true));
+    assert_eq!(registry::set_server_enabled(db, "newsrv", false).await.unwrap(), Some(false));
+    assert_eq!(registry::set_server_enabled(db, "nope", false).await.unwrap(), None);
+    assert_eq!(registry::set_tools_enabled(db, row2.id, None, false).await.unwrap(), vec!["a"]);
+    assert!(registry::set_tools_enabled(db, row2.id, None, false).await.unwrap().is_empty());
+    assert_eq!(registry::set_tools_enabled(db, row2.id, Some("a"), true).await.unwrap(), vec!["a"]);
+    assert!(registry::set_tools_enabled(db, row2.id, Some("zzz"), true).await.unwrap().is_empty());
+
+    // delete
+    assert!(registry::delete_server(db, "newsrv").await.unwrap());
+    assert!(!registry::delete_server(db, "newsrv").await.unwrap());
+    assert_eq!(catalog::servers(db).await.unwrap().len(), before);
+    assert_eq!(catalog::tools_by_server(db, row2.id).await.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn sqlite_registry_writes() {
+    let (db, _dir) = sqlite_from_fixture("legacy-enterprise.sqlite").await;
+    db.migrate().await.unwrap();
+    assert_registry_writes(&db).await;
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_registry_writes() {
+    let Some((db, admin, name)) = postgres_from_fixture().await else {
+        eprintln!("TRUNKS_TEST_PG_URL not set — skipping PostgreSQL registry write test");
+        return;
+    };
+    db.migrate().await.unwrap();
+    assert_registry_writes(&db).await;
+    db.close().await;
+    drop_pg(&admin, &name).await;
 }
 
 #[tokio::test]

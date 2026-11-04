@@ -157,6 +157,49 @@ impl ServerRecord {
     }
 }
 
+impl ServerRecord {
+    /// Export view (`GET /server_configs`): the registration input **including secrets**.
+    #[must_use]
+    pub fn to_export(&self) -> api::RegisterServerInput {
+        let expose = |m: &BTreeMap<String, SecretString>| {
+            m.iter().map(|(k, v)| (k.clone(), v.expose_secret().to_owned())).collect()
+        };
+        let mut out = api::RegisterServerInput {
+            name: self.name.to_string(),
+            transport: self.config.transport(),
+            description: self.description.clone(),
+            url: None,
+            bearer_token: None,
+            headers: BTreeMap::new(),
+            command: None,
+            args: vec![],
+            env: BTreeMap::new(),
+            session_mode: self.session_mode,
+            oauth_redirect_uri: None,
+            oauth_client_id: None,
+            oauth_client_secret: None,
+            oauth_scopes: vec![],
+        };
+        match &self.config {
+            UpstreamConfig::Stdio { command, args, env } => {
+                out.command = Some(command.clone());
+                out.args.clone_from(args);
+                out.env = expose(env);
+            }
+            UpstreamConfig::StreamableHttp { url, bearer_token, headers } => {
+                out.url = Some(url.clone());
+                out.bearer_token = bearer_token.as_ref().map(|t| t.expose_secret().to_owned());
+                out.headers = expose(headers);
+            }
+            UpstreamConfig::Sse { url, bearer_token } => {
+                out.url = Some(url.clone());
+                out.bearer_token = bearer_token.as_ref().map(|t| t.expose_secret().to_owned());
+            }
+        }
+        out
+    }
+}
+
 /// A tool as stored: bare upstream name plus its server.
 #[derive(Debug, Clone)]
 pub struct ToolRecord {

@@ -8,6 +8,7 @@ use trunks_core::identity::IdentityService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
 use trunks_core::ports::RegistryStore;
+use trunks_core::registry::RegistryService;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -15,6 +16,7 @@ pub struct AppState {
     pub gateway: Arc<GatewayState>,
     pub mcp: crate::mcp::McpMounts,
     pub registry: Arc<dyn RegistryStore>,
+    pub registry_service: RegistryService,
     pub identity: IdentityService,
     pub mode: ModeService,
     /// `None` when metrics are disabled (no `/metrics` route).

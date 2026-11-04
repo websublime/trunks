@@ -6,11 +6,13 @@ use trunks_core::domain::{
     UpstreamConfig, UserRecord,
 };
 use trunks_core::ports::{
-    ConfigStore, IdentityStore, RegistrySnapshot, RegistryStore, ServerConfig,
+    ConfigStore, Discovered, IdentityStore, NewServer, RegistrySnapshot, RegistryStore,
+    ServerConfig,
 };
 use trunks_types::{ResourceUri, Role, ServerMode, ServerName, SessionMode, Transport};
 
-use crate::repos::{catalog, config, identity};
+use crate::repos::registry::{NewPromptRow, NewResourceRow, NewServerRow, NewToolRow};
+use crate::repos::{catalog, config, identity, registry};
 use crate::rows::{
     McpClientRow, PromptRow, ResourceRow, ServerRow, ToolGroupRow, ToolRow, UserRow,
 };
@@ -177,6 +179,95 @@ impl RegistryStore for Store {
         let groups =
             catalog::tool_groups(db).await?.into_iter().map(ToolGroupRecord::from).collect();
         Ok(RegistrySnapshot { servers, tools, prompts, resources, groups })
+    }
+
+    async fn create_server(
+        &self,
+        server: &NewServer,
+        discovered: &Discovered,
+        replace: bool,
+    ) -> trunks_core::Result<ServerRecord> {
+        let row = NewServerRow {
+            name: server.name.to_string(),
+            transport: server.config.transport().as_str().to_owned(),
+            description: server.description.clone(),
+            config: server.config.to_json(),
+            session_mode: server.session_mode.as_str().to_owned(),
+        };
+        let tools: Vec<NewToolRow> = discovered
+            .tools
+            .iter()
+            .map(|t| NewToolRow {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                input_schema: t.input_schema.clone(),
+                annotations: t.annotations.clone(),
+            })
+            .collect();
+        let prompts: Vec<NewPromptRow> = discovered
+            .prompts
+            .iter()
+            .map(|p| NewPromptRow {
+                name: p.name.clone(),
+                description: p.description.clone(),
+                arguments: p.arguments.clone(),
+            })
+            .collect();
+        let resources: Vec<NewResourceRow> = discovered
+            .resources
+            .iter()
+            .map(|r| NewResourceRow {
+                uri: r.uri.to_string(),
+                original_uri: r.original_uri.clone(),
+                name: r.name.clone(),
+                description: r.description.clone(),
+                mime_type: r.mime_type.clone(),
+                annotations: r.annotations.clone(),
+                meta: r.meta.clone(),
+            })
+            .collect();
+        let inserted =
+            registry::create_server(&self.0, &row, &tools, &prompts, &resources, replace).await?;
+        ServerRecord::try_from(inserted)
+    }
+
+    async fn delete_server(&self, name: &ServerName) -> trunks_core::Result<bool> {
+        Ok(registry::delete_server(&self.0, name.as_str()).await?)
+    }
+
+    async fn set_server_enabled(
+        &self,
+        name: &ServerName,
+        enabled: bool,
+    ) -> trunks_core::Result<Option<bool>> {
+        Ok(registry::set_server_enabled(&self.0, name.as_str(), enabled).await?)
+    }
+
+    async fn set_tools_enabled(
+        &self,
+        server_id: i64,
+        name: Option<&str>,
+        enabled: bool,
+    ) -> trunks_core::Result<Vec<String>> {
+        Ok(registry::set_tools_enabled(&self.0, server_id, name, enabled).await?)
+    }
+
+    async fn set_prompts_enabled(
+        &self,
+        server_id: i64,
+        name: Option<&str>,
+        enabled: bool,
+    ) -> trunks_core::Result<Vec<String>> {
+        Ok(registry::set_prompts_enabled(&self.0, server_id, name, enabled).await?)
+    }
+
+    async fn set_resources_enabled(
+        &self,
+        server_id: i64,
+        uri: Option<&str>,
+        enabled: bool,
+    ) -> trunks_core::Result<Vec<String>> {
+        Ok(registry::set_resources_enabled(&self.0, server_id, uri, enabled).await?)
     }
 }
 

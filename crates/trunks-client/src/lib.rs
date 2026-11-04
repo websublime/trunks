@@ -6,8 +6,9 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 use snafu::{ResultExt, Snafu};
 use trunks_types::api::{
-    InitRequest, InitResponse, McpServer, Prompt, Resource, ServerMetadata, Tool, ToolInvokeResult,
-    User,
+    EnableDisableResult, InitRequest, InitResponse, McpServer, Prompt, PromptRenderResult,
+    RegisterServerInput, RegisterServerResult, Resource, ResourceReadResult, ServerMetadata, Tool,
+    ToolInvokeResult, User,
 };
 use trunks_types::{ApiErrorResponse, ServerMode};
 
@@ -115,14 +116,88 @@ impl Client {
         Self::decode(res).await
     }
 
+    /// `POST /api/v0/prompts/render`
+    pub async fn render_prompt(
+        &self,
+        name: &str,
+        arguments: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<PromptRenderResult> {
+        self.post(
+            "api/v0/prompts/render",
+            &[],
+            &serde_json::json!({"name": name, "arguments": arguments}),
+        )
+        .await
+    }
+
+    /// `POST /api/v0/resources/read`
+    pub async fn read_resource(&self, uri: &str) -> Result<ResourceReadResult> {
+        self.post("api/v0/resources/read", &[], &serde_json::json!({ "uri": uri })).await
+    }
+
     pub async fn whoami(&self) -> Result<User> {
         self.get("api/v0/users/whoami", &[]).await
+    }
+
+    // ---- /api/v0, admin level
+    /// `POST /api/v0/servers?force=`
+    pub async fn register_server(
+        &self,
+        input: &RegisterServerInput,
+        force: bool,
+    ) -> Result<RegisterServerResult> {
+        let q: &[(&str, &str)] = if force { &[("force", "true")] } else { &[] };
+        self.post("api/v0/servers", q, input).await
+    }
+
+    /// `DELETE /api/v0/servers/{name}`
+    pub async fn deregister_server(&self, name: &str) -> Result<()> {
+        let url = self.join(&format!("api/v0/servers/{name}"))?;
+        let res = self.authorized(self.http.delete(url)).send().await.context(HttpSnafu)?;
+        Self::decode_empty(res).await
+    }
+
+    /// `POST /api/v0/servers/{name}/enable|disable`
+    pub async fn set_server_enabled(
+        &self,
+        name: &str,
+        enabled: bool,
+    ) -> Result<EnableDisableResult> {
+        let action = if enabled { "enable" } else { "disable" };
+        self.post(&format!("api/v0/servers/{name}/{action}"), &[], &()).await
+    }
+
+    /// `POST /api/v0/{tools|prompts|resources}/{enable|disable}?entity=`
+    pub async fn set_entities_enabled(
+        &self,
+        kind: &str,
+        entity: &str,
+        enabled: bool,
+    ) -> Result<EnableDisableResult> {
+        let action = if enabled { "enable" } else { "disable" };
+        self.post(&format!("api/v0/{kind}/{action}"), &[("entity", entity)], &()).await
+    }
+
+    /// `GET /api/v0/server_configs` — registration inputs **with secrets** (admin).
+    pub async fn server_configs(&self) -> Result<Vec<RegisterServerInput>> {
+        self.get("api/v0/server_configs", &[]).await
     }
 
     // ---- plumbing
     async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> Result<T> {
         let url = self.join(path)?;
         let req = self.authorized(self.http.get(url).query(query));
+        Self::decode(req.send().await.context(HttpSnafu)?).await
+    }
+
+    async fn post<B: serde::Serialize + ?Sized, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        body: &B,
+    ) -> Result<T> {
+        let url = self.join(path)?;
+        let req = self.authorized(self.http.post(url).query(query).json(body));
         Self::decode(req.send().await.context(HttpSnafu)?).await
     }
 
@@ -138,15 +213,25 @@ impl Client {
     }
 
     async fn decode<T: DeserializeOwned>(res: reqwest::Response) -> Result<T> {
-        let status = res.status();
-        if status.is_success() {
+        if res.status().is_success() {
             return res.json().await.context(HttpSnafu);
         }
-        let code = status.as_u16();
+        Err(Self::api_error(res).await)
+    }
+
+    async fn decode_empty(res: reqwest::Response) -> Result<()> {
+        if res.status().is_success() {
+            return Ok(());
+        }
+        Err(Self::api_error(res).await)
+    }
+
+    async fn api_error(res: reqwest::Response) -> Error {
+        let code = res.status().as_u16();
         let text = res.text().await.unwrap_or_default();
         match serde_json::from_str::<ApiErrorResponse>(&text) {
-            Ok(body) => Err(Error::Api { status: code, body }),
-            Err(_) => Err(Error::Status { status: code, message: text }),
+            Ok(body) => Error::Api { status: code, body },
+            Err(_) => Error::Status { status: code, message: text },
         }
     }
 }

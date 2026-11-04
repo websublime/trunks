@@ -15,6 +15,7 @@ pub mod identity;
 pub mod metrics;
 pub mod mode;
 pub mod ports;
+pub mod registry;
 pub mod sessions;
 pub mod upstream;
 

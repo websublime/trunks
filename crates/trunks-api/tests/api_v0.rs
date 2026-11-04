@@ -17,7 +17,9 @@ use trunks_core::gateway::GatewayState;
 use trunks_core::identity::IdentityService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
+use trunks_core::registry::RegistryService;
 use trunks_core::sessions::{SessionManager, SessionOptions};
+use trunks_core::upstream::ConnectOptions;
 use trunks_db::{Db, Store};
 
 fn fixtures() -> PathBuf {
@@ -52,7 +54,13 @@ async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
     let state = AppState {
         catalog,
         gateway: gateway.clone(),
-        mcp: McpMounts::new(gateway, McpOptions::default()),
+        mcp: McpMounts::new(gateway.clone(), McpOptions::default()),
+        registry_service: RegistryService::new(
+            store.clone(),
+            gateway.catalog.clone(),
+            gateway.sessions.clone(),
+            ConnectOptions::default(),
+        ),
         registry: store,
         identity,
         mode,
