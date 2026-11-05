@@ -193,11 +193,87 @@ pub struct EnableDisableResult {
     pub resources_affected: Vec<String>,
 }
 
-/// `GET /api/v0/users/whoami`
+/// `GET /api/v0/users/whoami` and the items of `GET /api/v0/users`. Never carries a token.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct User {
     pub username: String,
     pub role: Role,
+}
+
+/// `POST /api/v0/users` body (enterprise, admin). Role is always `user`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CreateUserRequest {
+    pub username: String,
+    /// Custom token (≥ 8 chars, no whitespace); generated when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+}
+
+/// `PUT /api/v0/users/{username}` body: rotates the token (custom or generated).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateUserRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+}
+
+/// Response of `POST /users` and `PUT /users/{username}`: the only places a user token is
+/// ever serialized.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserWithToken {
+    pub username: String,
+    pub role: Role,
+    pub access_token: String,
+}
+
+/// An MCP client as listed by `GET /api/v0/clients`. Never carries the token.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpClient {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    /// Server names this client may reach; `["*"]` means every server, `[]` none.
+    #[serde(default)]
+    pub allow_list: Vec<String>,
+}
+
+/// `POST /api/v0/clients` body (enterprise, admin).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CreateMcpClientRequest {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub allow_list: Vec<String>,
+    /// Custom token (≥ 8 chars, no whitespace); generated when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+}
+
+/// `PUT /api/v0/clients/{name}` body. Every field is optional; `rotate_token` generates a
+/// new token (`access_token` sets a custom one and wins).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateMcpClientRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_list: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    #[serde(default)]
+    pub rotate_token: bool,
+}
+
+/// Response of `POST /clients` and `PUT /clients/{name}`. `access_token` is present on
+/// creation and whenever the token changed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpClientWithToken {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub allow_list: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 /// Query string of `GET /api/v0/tools|prompts|resources`.

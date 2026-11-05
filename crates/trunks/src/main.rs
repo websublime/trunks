@@ -63,6 +63,12 @@ enum Command {
     InitServer,
     /// Store a user access token for this registry
     Login(commands::auth::LoginArgs),
+    /// Create a user or an MCP client (enterprise mode)
+    Create(commands::identities::CreateArgs),
+    /// Update a user's token or an MCP client (enterprise mode)
+    Update(commands::identities::UpdateArgs),
+    /// Delete a user or an MCP client (enterprise mode)
+    Delete(commands::identities::DeleteArgs),
     /// Print the CLI and server versions
     Version,
 }
@@ -105,6 +111,9 @@ async fn run(cli: Cli) -> Result<(), Whatever> {
         Command::Invoke(args) => commands::invoke::run(&client, args).await,
         Command::InitServer => commands::auth::init_server(&client, &registry).await,
         Command::Login(args) => commands::auth::login(&client, &registry, args).await,
+        Command::Create(args) => commands::identities::create(&client, args).await,
+        Command::Update(args) => commands::identities::update(&client, args).await,
+        Command::Delete(args) => commands::identities::delete(&client, args).await,
         Command::Version => {
             println!("{BANNER}");
             println!("CLI Version: {}", trunks_types::version::version());

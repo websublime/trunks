@@ -129,11 +129,38 @@ pub trait RegistryStore: Send + Sync + 'static {
     ) -> Result<Vec<String>>;
 }
 
-/// Users and MCP clients.
+/// Users and MCP clients. Tokens are compared exact-match (plaintext in v1, see §4.9).
 #[async_trait]
 pub trait IdentityStore: Send + Sync + 'static {
     async fn user_by_token(&self, token: &str) -> Result<Option<UserRecord>>;
     async fn client_by_token(&self, token: &str) -> Result<Option<McpClientRecord>>;
     /// Creates a user with the given (already validated) token. Fails on duplicate username.
     async fn create_user(&self, username: &str, role: Role, token: &str) -> Result<UserRecord>;
+
+    async fn users(&self) -> Result<Vec<UserRecord>>;
+    async fn user_by_name(&self, username: &str) -> Result<Option<UserRecord>>;
+    /// Returns `false` when there is no such user.
+    async fn update_user_token(&self, username: &str, token: &str) -> Result<bool>;
+    /// Returns `false` when there is no such user.
+    async fn delete_user(&self, username: &str) -> Result<bool>;
+
+    async fn clients(&self) -> Result<Vec<McpClientRecord>>;
+    async fn client_by_name(&self, name: &str) -> Result<Option<McpClientRecord>>;
+    async fn create_client(
+        &self,
+        name: &str,
+        description: &str,
+        token: &str,
+        allow_list: &[String],
+    ) -> Result<McpClientRecord>;
+    /// Updates only the given fields. Returns `false` when there is no such client.
+    async fn update_client(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        allow_list: Option<&[String]>,
+        token: Option<&str>,
+    ) -> Result<bool>;
+    /// Returns `false` when there is no such client.
+    async fn delete_client(&self, name: &str) -> Result<bool>;
 }

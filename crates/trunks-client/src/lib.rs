@@ -6,9 +6,10 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 use snafu::{ResultExt, Snafu};
 use trunks_types::api::{
-    EnableDisableResult, InitRequest, InitResponse, McpServer, Prompt, PromptRenderResult,
-    RegisterServerInput, RegisterServerResult, Resource, ResourceReadResult, ServerMetadata, Tool,
-    ToolInvokeResult, User,
+    CreateMcpClientRequest, CreateUserRequest, EnableDisableResult, InitRequest, InitResponse,
+    McpClient, McpClientWithToken, McpServer, Prompt, PromptRenderResult, RegisterServerInput,
+    RegisterServerResult, Resource, ResourceReadResult, ServerMetadata, Tool, ToolInvokeResult,
+    UpdateMcpClientRequest, UpdateUserRequest, User, UserWithToken,
 };
 use trunks_types::{ApiErrorResponse, ServerMode};
 
@@ -152,9 +153,7 @@ impl Client {
 
     /// `DELETE /api/v0/servers/{name}`
     pub async fn deregister_server(&self, name: &str) -> Result<()> {
-        let url = self.join(&format!("api/v0/servers/{name}"))?;
-        let res = self.authorized(self.http.delete(url)).send().await.context(HttpSnafu)?;
-        Self::decode_empty(res).await
+        self.delete(&format!("api/v0/servers/{name}")).await
     }
 
     /// `POST /api/v0/servers/{name}/enable|disable`
@@ -183,6 +182,47 @@ impl Client {
         self.get("api/v0/server_configs", &[]).await
     }
 
+    // ---- /api/v0, enterprise + admin
+    pub async fn list_users(&self) -> Result<Vec<User>> {
+        self.get("api/v0/users", &[]).await
+    }
+
+    pub async fn create_user(&self, req: &CreateUserRequest) -> Result<UserWithToken> {
+        self.post("api/v0/users", &[], req).await
+    }
+
+    pub async fn update_user(
+        &self,
+        username: &str,
+        req: &UpdateUserRequest,
+    ) -> Result<UserWithToken> {
+        self.put(&format!("api/v0/users/{username}"), req).await
+    }
+
+    pub async fn delete_user(&self, username: &str) -> Result<()> {
+        self.delete(&format!("api/v0/users/{username}")).await
+    }
+
+    pub async fn list_clients(&self) -> Result<Vec<McpClient>> {
+        self.get("api/v0/clients", &[]).await
+    }
+
+    pub async fn create_client(&self, req: &CreateMcpClientRequest) -> Result<McpClientWithToken> {
+        self.post("api/v0/clients", &[], req).await
+    }
+
+    pub async fn update_client(
+        &self,
+        name: &str,
+        req: &UpdateMcpClientRequest,
+    ) -> Result<McpClientWithToken> {
+        self.put(&format!("api/v0/clients/{name}"), req).await
+    }
+
+    pub async fn delete_client(&self, name: &str) -> Result<()> {
+        self.delete(&format!("api/v0/clients/{name}")).await
+    }
+
     // ---- plumbing
     async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> Result<T> {
         let url = self.join(path)?;
@@ -199,6 +239,22 @@ impl Client {
         let url = self.join(path)?;
         let req = self.authorized(self.http.post(url).query(query).json(body));
         Self::decode(req.send().await.context(HttpSnafu)?).await
+    }
+
+    async fn put<B: serde::Serialize + ?Sized, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
+        let url = self.join(path)?;
+        let req = self.authorized(self.http.put(url).json(body));
+        Self::decode(req.send().await.context(HttpSnafu)?).await
+    }
+
+    async fn delete(&self, path: &str) -> Result<()> {
+        let url = self.join(path)?;
+        let res = self.authorized(self.http.delete(url)).send().await.context(HttpSnafu)?;
+        Self::decode_empty(res).await
     }
 
     fn join(&self, path: &str) -> Result<url::Url> {

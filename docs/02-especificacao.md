@@ -254,8 +254,10 @@ Fase 2 (`POST /api/v0/upstream_oauth/sessions/{id}/complete {code, state}`): val
 ### 4.9 Identidades e tokens
 
 - `generate_token()` → 32 bytes CSPRNG, base64url sem padding (43 chars). `validate_custom_token(s)`: `len ≥ 8` && sem whitespace Unicode.
-- `UserService`: `create_admin()` (só via `/init`), `create_user(name, token?)` role sempre `user`, `update_token`, `delete` (admin → `InvalidInput`), `by_token`.
-- `McpClientService`: `create(name, desc, token?, allow_list?)` (nil → `[]`), `update_token`, `delete` idempotente, `by_token`. `allow_list` malformada → sem acesso.
+- `IdentityService` (users): `create_admin()` (só via `/init`), `create_user(name, token?)` role sempre `user`, `update_user_token` (rotação, custom ou gerado; o token antigo deixa de valer no pedido seguinte), `delete_user` (admin → `InvalidInput`; idempotente), `authenticate_user`.
+- `IdentityService` (MCP clients): `create_client(name, desc, allow_list, token?)` (lista vazia = sem acesso), `update_client(desc?, allow_list?, token?)` (só os campos dados; `COALESCE` na DB), `delete_client` idempotente, `authenticate_mcp_client`. `allow_list` malformada → sem acesso; entradas válidas: `"*"` ou nomes de servidor válidos (não precisam de existir).
+- Nomes de identidades: não vazios, sem whitespace, ≤ 100 chars. Duplicados → 400 `… already exists` (pré-verificação por nome; a constraint única da DB é mapeada para 400 em caso de corrida ou de token repetido).
+- **Tokens só são serializados duas vezes**: na criação e na rotação. `GET /users` e `GET /clients` nunca os devolvem (decisão própria; o legado devolvia em plaintext).
 - v1: comparação exact-match em plaintext (compat com DB existente). D8: coluna `access_token_hash`, migração que hasheia e limpa `access_token`.
 
 ### 4.10 Tool groups
@@ -287,6 +289,11 @@ Shapes do registry (admin):
 - `POST /servers/{name}/enable|disable` e `POST /{tools|prompts|resources}/enable|disable?entity=` → `200 EnableDisableResult {name?, tools_affected[], prompts_affected[], resources_affected[]}` (listas vazias omitidas). `entity` em falta → 400 `MISSING_ENTITY_QUERY`; entidade desconhecida → 404; para resources, uma string que não é servidor nem URI `trunks://` → 400.
 - `GET /server_configs` → `[RegisterServerInput]` **com segredos**: é o formato de `trunks export` e de `trunks register -c`.
 
+Shapes de identidades (enterprise + admin; em development → 403 `ENTERPRISE_ONLY`):
+- `GET /users` → `[User {username, role}]`. `POST /users {username, access_token?}` → `201 UserWithToken {username, role, access_token}`. `PUT /users/{username} {access_token?}` → `200 UserWithToken` (token novo; 404 se não existir). `DELETE /users/{username}` → 204 (idempotente; admin → 400 `ADMIN_CANNOT_BE_DELETED`).
+- `GET /clients` → `[McpClient {name, description, allow_list[]}]`. `POST /clients {name, description, allow_list[], access_token?}` → `201 McpClientWithToken {…, access_token}`. `PUT /clients/{name} {description?, allow_list?, access_token?, rotate_token}` → `200 McpClientWithToken` com `access_token` apenas se mudou (404 se não existir). `DELETE /clients/{name}` → 204 idempotente.
+- Erros de validação: `USERNAME_REQUIRED`, `NAME_REQUIRED`, `INVALID_TOKEN_FORMAT`, `invalid allow list entry '{e}': …`.
+
 Erros: `{"error": string, "code"?: string}`. Mapeamento `RegistryError → StatusCode`: `NotFound→404`, `InvalidInput→400` (+`code:"upstream_oauth_required"` quando aplicável), `Unauthorized→401`, `Forbidden→403`, resto `→500` com a mensagem. Mensagens que testes/CLI dependem: `"server is not initialized"` (403), `"missing access token"`, `"invalid access token: …"`, `"user is not authorized to perform this action"`, `"this request is only allowed in enterprise mode"`, `"missing MCP client access token"`, `"invalid MCP client token"`, `"Server is already initialized"`, `"name is required"`, `"missing 'name' query parameter"`, `"missing 'entity' query parameter"`, `"invalid 'force' query parameter: expected true or false"`, `"url is required for the streamable_http transport"`, `"command is required for the stdio transport"`, `"the 'sse' transport is not supported; register the server as streamable_http"`, `"tool group not found: {name}"`.
 
 Middleware:
@@ -314,6 +321,7 @@ Web app: `trunks-dashboard` embebe o bundle de `web/app` (Lit + `line://ui`) com
 - Ficheiro de config `~/.config/trunks/config.toml` (`registry_url`, `access_token`; XDG, `0600`).
 - `register`: `--name`, `--transport stdio|streamable-http` (inferido de `--url` quando omitido), `--description`, `--url`, `--bearer-token`, `--header NAME=VALUE`*, `--command`, `--arg ARG`*, `--env NAME=VALUE`*, `--session-mode stateless|stateful`, `--force`, `-c/--conf FILE` (JSON `RegisterServerInput`; flags sobrepõem-se ao ficheiro). `${VAR}` é expandido em todas as strings do ficheiro; variável em falta = erro. Saída: `Server <n> registered successfully!` seguida das tools/prompts/resources, ou `This server does not provide any tools, prompts or resources.`
 - `deregister <n>` → `Server <n> deregistered successfully!`. `enable|disable server|tool|prompt|resource <entity>` imprime as entidades afectadas. `get prompt <n> [--arg k=v]*`, `get resource <uri> [--read]`. `export [-d DIR]` (default `.trunks`; o directório tem de estar vazio ou não existir) escreve `servers/<n>.json` **com credenciais** e avisa.
+- `create user [name] [--access-token T] [-c FILE]` → `User <n> created.` / `Access token: <t>` / `Log in with: trunks login <t>`. `create mcp-client [name] [--allow s1,s2|*]* [--description] [--access-token] [-c FILE]` → `MCP client <n> created.` / `Access token:` / `Allowed servers:` + aviso quando a lista contém `*` ou está vazia. `update user <n> [--access-token]` roda o token; `update mcp-client <n> [--allow …] [--description] [--access-token T | --rotate-token]`. `delete user|mcp-client <n>`. `list users|mcp-clients` (tabelas sem tokens). Ficheiros `-c` são os bodies JSON dos endpoints, com `${VAR}` expandido.
 - `register` com fluxo OAuth: listener loopback `127.0.0.1:0` em `/oauth/callback`, abre browser (`open`/`xdg-open`/`rundll32`), espera até `expires_at`, chama `complete`.
 - `invoke`: grava `image_*/audio_*/resource_*` no CWD com a mesma tabela de extensões por MIME.
 - Saída: texto plano. `--output json` em v1.x.

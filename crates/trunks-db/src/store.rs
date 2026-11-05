@@ -290,6 +290,56 @@ impl IdentityStore for Store {
         let row = identity::create_user(&self.0, username, role.as_str(), token).await?;
         UserRecord::try_from(row)
     }
+
+    async fn users(&self) -> trunks_core::Result<Vec<UserRecord>> {
+        identity::users(&self.0).await?.into_iter().map(UserRecord::try_from).collect()
+    }
+
+    async fn user_by_name(&self, username: &str) -> trunks_core::Result<Option<UserRecord>> {
+        identity::user_by_name(&self.0, username).await?.map(UserRecord::try_from).transpose()
+    }
+
+    async fn update_user_token(&self, username: &str, token: &str) -> trunks_core::Result<bool> {
+        Ok(identity::update_user_token(&self.0, username, token).await?)
+    }
+
+    async fn delete_user(&self, username: &str) -> trunks_core::Result<bool> {
+        Ok(identity::delete_user(&self.0, username).await?)
+    }
+
+    async fn clients(&self) -> trunks_core::Result<Vec<McpClientRecord>> {
+        Ok(identity::clients(&self.0).await?.into_iter().map(McpClientRecord::from).collect())
+    }
+
+    async fn client_by_name(&self, name: &str) -> trunks_core::Result<Option<McpClientRecord>> {
+        Ok(identity::client_by_name(&self.0, name).await?.map(McpClientRecord::from))
+    }
+
+    async fn create_client(
+        &self,
+        name: &str,
+        description: &str,
+        token: &str,
+        allow_list: &[String],
+    ) -> trunks_core::Result<McpClientRecord> {
+        Ok(identity::create_client(&self.0, name, description, token, allow_list)
+            .await
+            .map(McpClientRecord::from)?)
+    }
+
+    async fn update_client(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        allow_list: Option<&[String]>,
+        token: Option<&str>,
+    ) -> trunks_core::Result<bool> {
+        Ok(identity::update_client(&self.0, name, description, allow_list, token).await?)
+    }
+
+    async fn delete_client(&self, name: &str) -> trunks_core::Result<bool> {
+        Ok(identity::delete_client(&self.0, name).await?)
+    }
 }
 
 /// Convenience: a `Result<T>` from this crate mapped into the domain error.

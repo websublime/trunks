@@ -242,3 +242,212 @@ async fn enterprise_admin_routes_require_admin() {
     assert_eq!(admin.server_configs().await.unwrap().len(), 1);
     admin.deregister_server("alpha").await.unwrap();
 }
+
+// ---- Phase 3: users and MCP clients
+
+use trunks_types::api::{
+    CreateMcpClientRequest, CreateUserRequest, UpdateMcpClientRequest, UpdateUserRequest,
+};
+
+async fn mcp_list_tools(base: &str, token: &str) -> Result<Vec<String>, String> {
+    use rmcp::ServiceExt as _;
+    let mut h = reqwest::header::HeaderMap::new();
+    h.insert(reqwest::header::AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
+    let rc = reqwest::Client::builder().default_headers(h).build().unwrap();
+    let t = rmcp::transport::StreamableHttpClientTransport::with_client(
+        rc,
+        rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(
+            format!("{base}/mcp"),
+        ),
+    );
+    let c = ().serve(t).await.map_err(|e| e.to_string())?;
+    let tools = c.list_all_tools().await.map_err(|e| e.to_string())?;
+    Ok(tools.iter().map(|t| t.name.to_string()).collect())
+}
+
+#[tokio::test]
+async fn identities_are_enterprise_only() {
+    let (admin, _anon, _dir) = boot(ServerMode::Development).await;
+    let e = admin.list_users().await.unwrap_err();
+    assert_eq!(api_status(&e), 403);
+    assert!(e.to_string().contains("enterprise"));
+    assert_eq!(api_status(&admin.list_clients().await.unwrap_err()), 403);
+    let req = CreateUserRequest { username: "bob".into(), access_token: None };
+    assert_eq!(api_status(&admin.create_user(&req).await.unwrap_err()), 403);
+}
+
+#[tokio::test]
+async fn users_crud_and_token_semantics() {
+    let (admin, anon, _dir) = boot(ServerMode::Enterprise).await;
+    let users = admin.list_users().await.unwrap();
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].username, "admin");
+
+    // validation
+    let bad = CreateUserRequest { username: "  ".into(), access_token: None };
+    let e = admin.create_user(&bad).await.unwrap_err();
+    assert_eq!(api_status(&e), 400);
+    assert!(e.to_string().contains("username is required"));
+    let bad = CreateUserRequest { username: "bob".into(), access_token: Some("short".into()) };
+    assert_eq!(api_status(&admin.create_user(&bad).await.unwrap_err()), 400);
+    let bad = CreateUserRequest { username: "has space".into(), access_token: None };
+    assert_eq!(api_status(&admin.create_user(&bad).await.unwrap_err()), 400);
+
+    // create with a generated token; the token works and is never listed
+    let bob = admin
+        .create_user(&CreateUserRequest { username: "bob".into(), access_token: None })
+        .await
+        .unwrap();
+    assert_eq!(bob.access_token.len(), 43);
+    assert_eq!(bob.role, trunks_types::Role::User);
+    let as_bob = anon.with_token(SecretString::from(bob.access_token.clone()));
+    assert_eq!(as_bob.whoami().await.unwrap().username, "bob");
+    assert!(
+        !serde_json::to_value(admin.list_users().await.unwrap())
+            .unwrap()
+            .to_string()
+            .contains("access_token")
+    );
+
+    // duplicate
+    let e = admin
+        .create_user(&CreateUserRequest { username: "bob".into(), access_token: None })
+        .await
+        .unwrap_err();
+    assert_eq!(api_status(&e), 400);
+    assert!(e.to_string().contains("already exists"));
+
+    // a regular user is not an admin
+    assert_eq!(api_status(&as_bob.list_users().await.unwrap_err()), 403);
+    assert_eq!(
+        api_status(&as_bob.register_server(&stdio_input("x"), false).await.unwrap_err()),
+        403
+    );
+    assert!(as_bob.list_servers().await.is_ok());
+
+    // custom token + rotation: old token stops working
+    let carol = admin
+        .create_user(&CreateUserRequest {
+            username: "carol".into(),
+            access_token: Some("carol-token-1".into()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(carol.access_token, "carol-token-1");
+    let rotated =
+        admin.update_user("carol", &UpdateUserRequest { access_token: None }).await.unwrap();
+    assert_ne!(rotated.access_token, "carol-token-1");
+    let old = anon.with_token(SecretString::from("carol-token-1".to_owned()));
+    assert_eq!(api_status(&old.whoami().await.unwrap_err()), 401);
+    let new = anon.with_token(SecretString::from(rotated.access_token));
+    assert_eq!(new.whoami().await.unwrap().username, "carol");
+    assert_eq!(
+        api_status(&admin.update_user("nobody", &UpdateUserRequest::default()).await.unwrap_err()),
+        404
+    );
+
+    // delete: idempotent, admin protected
+    admin.delete_user("carol").await.unwrap();
+    admin.delete_user("carol").await.unwrap();
+    assert_eq!(api_status(&new.whoami().await.unwrap_err()), 401);
+    let e = admin.delete_user("admin").await.unwrap_err();
+    assert_eq!(api_status(&e), 400);
+    assert!(e.to_string().contains("admin"));
+    assert_eq!(admin.list_users().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn mcp_clients_crud_and_allow_lists_apply_live() {
+    let (admin, anon, _dir) = boot(ServerMode::Enterprise).await;
+    let base = admin.base_url().to_string();
+    let base = base.trim_end_matches('/').to_owned();
+    admin.register_server(&stdio_input("alpha"), false).await.unwrap();
+    admin.register_server(&stdio_input("beta"), false).await.unwrap();
+
+    // validation
+    let bad = CreateMcpClientRequest { name: String::new(), ..Default::default() };
+    assert_eq!(api_status(&admin.create_client(&bad).await.unwrap_err()), 400);
+    let bad = CreateMcpClientRequest {
+        name: "c".into(),
+        allow_list: vec!["bad__x".into()],
+        ..Default::default()
+    };
+    let e = admin.create_client(&bad).await.unwrap_err();
+    assert_eq!(api_status(&e), 400);
+    assert!(e.to_string().contains("allow list"));
+
+    // empty allow list → authenticated but sees nothing (fail closed)
+    let c1 = admin
+        .create_client(&CreateMcpClientRequest {
+            name: "agent".into(),
+            description: "d".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let t1 = c1.access_token.clone().unwrap();
+    assert_eq!(mcp_list_tools(&base, &t1).await.unwrap(), Vec::<String>::new());
+
+    // allow list change applies to the next request, no restart
+    let upd = admin
+        .update_client(
+            "agent",
+            &UpdateMcpClientRequest { allow_list: Some(vec!["beta".into()]), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert!(upd.access_token.is_none(), "token must not be returned unless it changed");
+    let tools = mcp_list_tools(&base, &t1).await.unwrap();
+    assert_eq!(tools, ["beta__echo", "beta__echo_headers", "beta__fail"]);
+
+    // wildcard
+    let c2 = admin
+        .create_client(&CreateMcpClientRequest {
+            name: "all".into(),
+            allow_list: vec!["*".into()],
+            access_token: Some("client-token-xyz".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(c2.access_token.as_deref(), Some("client-token-xyz"));
+    assert_eq!(mcp_list_tools(&base, "client-token-xyz").await.unwrap().len(), 6);
+
+    // listings never carry tokens; user tokens are rejected on /mcp
+    let listed = admin.list_clients().await.unwrap();
+    assert_eq!(listed.len(), 2);
+    assert!(!serde_json::to_value(&listed).unwrap().to_string().contains("token"));
+    let bob = admin
+        .create_user(&CreateUserRequest { username: "bob".into(), access_token: None })
+        .await
+        .unwrap();
+    assert!(mcp_list_tools(&base, &bob.access_token).await.is_err());
+
+    // rotation invalidates the old token; duplicate names rejected; delete idempotent
+    let rot = admin
+        .update_client(
+            "agent",
+            &UpdateMcpClientRequest { rotate_token: true, ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let t1b = rot.access_token.unwrap();
+    assert_ne!(t1b, t1);
+    assert!(mcp_list_tools(&base, &t1).await.is_err());
+    assert_eq!(mcp_list_tools(&base, &t1b).await.unwrap().len(), 3);
+    let dup = CreateMcpClientRequest { name: "agent".into(), ..Default::default() };
+    assert!(admin.create_client(&dup).await.unwrap_err().to_string().contains("already exists"));
+    assert_eq!(
+        api_status(
+            &admin.update_client("ghost", &UpdateMcpClientRequest::default()).await.unwrap_err()
+        ),
+        404
+    );
+    admin.delete_client("agent").await.unwrap();
+    admin.delete_client("agent").await.unwrap();
+    assert!(mcp_list_tools(&base, &t1b).await.is_err());
+    assert_eq!(admin.list_clients().await.unwrap().len(), 1);
+
+    // the anonymous client cannot touch identities
+    assert_eq!(api_status(&anon.list_clients().await.unwrap_err()), 401);
+}
