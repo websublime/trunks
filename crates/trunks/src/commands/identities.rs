@@ -70,15 +70,19 @@ fn read_conf<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Result<T
     serde_json::from_value(value).whatever_context(format!("{} is not valid", path.display()))
 }
 
-fn allow_list_notes(allow_list: &[String]) {
-    if allow_list.iter().any(|a| a == "*") {
-        println!(
+fn allow_list_notes(allow_list: &[String], owned: bool) {
+    let wildcard = allow_list.iter().any(|a| a == "*");
+    match (wildcard, allow_list.is_empty(), owned) {
+        (true, _, true) | (_, true, true) => {
+            println!("Note: on an owned client this means everything its owner can access.");
+        }
+        (true, _, false) => println!(
             "Warning: this client can access every registered server (allow list contains \"*\")."
-        );
-    } else if allow_list.is_empty() {
-        println!(
+        ),
+        (_, true, false) => println!(
             "Note: the allow list is empty; this client cannot reach any server until it is updated."
-        );
+        ),
+        _ => {}
     }
 }
 
