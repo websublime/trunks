@@ -13,6 +13,7 @@ use tower::ServiceExt as _;
 use trunks_api::AppState;
 use trunks_api::mcp::{McpMounts, McpOptions};
 use trunks_core::catalog::Catalog;
+use trunks_core::dashboard::RuntimeInfo;
 use trunks_core::gateway::GatewayState;
 use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
@@ -22,6 +23,7 @@ use trunks_core::registry::RegistryService;
 use trunks_core::sessions::{SessionManager, SessionOptions};
 use trunks_core::upstream::ConnectOptions;
 use trunks_db::{Db, Store};
+use trunks_types::ServerMode;
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
@@ -68,6 +70,20 @@ async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
         identity,
         mode,
         metrics,
+        runtime: RuntimeInfo {
+            mode: ServerMode::Development,
+            version: "vtest".into(),
+            started_at: chrono::Utc::now(),
+            database_backend: "sqlite".into(),
+            database_url: "sqlite://test".into(),
+            migrations_latest: None,
+            bind_host: "127.0.0.1".into(),
+            bind_port: 0,
+            allowed_hosts: vec![],
+            upstream_init_timeout_sec: 30,
+            session_idle_timeout_sec: 0,
+            metrics_enabled: false,
+        },
     };
     App { router: trunks_api::router(state), _dir: dir }
 }

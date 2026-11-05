@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use trunks_core::catalog::Catalog;
+use trunks_core::dashboard::RuntimeInfo;
 use trunks_core::gateway::GatewayState;
 use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
@@ -23,6 +24,8 @@ pub struct AppState {
     pub mode: ModeService,
     /// `None` when metrics are disabled (no `/metrics` route).
     pub metrics: Option<Metrics>,
+    /// Facts about the running process for the dashboard.
+    pub runtime: RuntimeInfo,
 }
 
 impl std::fmt::Debug for AppState {

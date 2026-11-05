@@ -129,6 +129,13 @@ pub async fn pending_by_session(db: &Db, session_id: &str) -> Result<Option<OAut
     Ok(with_pool!(db, |p| sqlx::query_as(&sql).bind(session_id).fetch_optional(p).await?))
 }
 
+pub async fn pending_by_state(db: &Db, state: &str) -> Result<Option<OAuthPendingRow>> {
+    let sql = format!(
+        "SELECT {PENDING_COLS} FROM upstream_oauth_pending_sessions WHERE state = $1 AND deleted_at IS NULL"
+    );
+    Ok(with_pool!(db, |p| sqlx::query_as(&sql).bind(state).fetch_optional(p).await?))
+}
+
 /// Replaces any pending session of the same server (one transaction).
 pub async fn replace_pending(db: &Db, w: &OAuthPendingWrite) -> Result<()> {
     let now = Utc::now();

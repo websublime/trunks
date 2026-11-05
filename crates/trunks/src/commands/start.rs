@@ -14,6 +14,7 @@ use tracing_subscriber::EnvFilter;
 use trunks_api::AppState;
 use trunks_api::mcp::{McpMounts, McpOptions};
 use trunks_core::catalog::Catalog;
+use trunks_core::dashboard::RuntimeInfo;
 use trunks_core::gateway::GatewayState;
 use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
@@ -126,31 +127,37 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         Ok(_) => {}
         Err(e) => tracing::warn!(error = %e, "could not purge expired OAuth sessions"),
     }
+    let host = if args.host.is_empty() { "0.0.0.0" } else { args.host.as_str() };
+    let addr: SocketAddr =
+        format!("{host}:{}", args.port).parse().whatever_context("invalid bind address")?;
+    let allowed_hosts: Vec<String> =
+        args.allowed_hosts.iter().filter(|h| !h.is_empty()).cloned().collect();
+    let runtime = RuntimeInfo {
+        mode: args.mode,
+        version: trunks_types::version::version(),
+        started_at: chrono::Utc::now(),
+        database_backend: db.backend().to_owned(),
+        database_url: trunks_db::redact(&args.database_url),
+        migrations_latest: Some(applied.latest),
+        bind_host: host.to_owned(),
+        bind_port: args.port,
+        allowed_hosts: allowed_hosts.clone(),
+        upstream_init_timeout_sec: args.upstream_init_timeout_sec.max(1),
+        session_idle_timeout_sec: args.session_idle_timeout_sec,
+        metrics_enabled: metrics.is_some(),
+    };
     let state = AppState {
         catalog: catalog.clone(),
         gateway: gateway.clone(),
-        mcp: McpMounts::new(
-            gateway,
-            McpOptions {
-                allowed_hosts: args
-                    .allowed_hosts
-                    .iter()
-                    .filter(|h| !h.is_empty())
-                    .cloned()
-                    .collect(),
-            },
-        ),
+        mcp: McpMounts::new(gateway, McpOptions { allowed_hosts }),
         registry_service,
         groups: GroupService::new(store.clone(), catalog.clone()),
         registry: store.clone(),
         identity,
         mode,
         metrics,
+        runtime,
     };
-
-    let host = if args.host.is_empty() { "0.0.0.0" } else { args.host.as_str() };
-    let addr: SocketAddr =
-        format!("{host}:{}", args.port).parse().whatever_context("invalid bind address")?;
 
     let app = trunks_api::router(state);
     let listener = TcpListener::bind(addr).await.whatever_context("failed to bind")?;

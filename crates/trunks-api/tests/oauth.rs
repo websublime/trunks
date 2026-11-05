@@ -12,6 +12,7 @@ use trunks_api::AppState;
 use trunks_api::mcp::{McpMounts, McpOptions};
 use trunks_client::Client;
 use trunks_core::catalog::Catalog;
+use trunks_core::dashboard::RuntimeInfo;
 use trunks_core::gateway::GatewayState;
 use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
@@ -62,6 +63,20 @@ async fn boot() -> (Client, Arc<Store>, tempfile::TempDir) {
         identity,
         mode: mode_svc,
         metrics: None,
+        runtime: RuntimeInfo {
+            mode: ServerMode::Development,
+            version: "vtest".into(),
+            started_at: chrono::Utc::now(),
+            database_backend: "sqlite".into(),
+            database_url: "sqlite://test".into(),
+            migrations_latest: None,
+            bind_host: "127.0.0.1".into(),
+            bind_port: 0,
+            allowed_hosts: vec![],
+            upstream_init_timeout_sec: 30,
+            session_idle_timeout_sec: 0,
+            metrics_enabled: false,
+        },
     };
     let app = trunks_api::router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -229,4 +244,107 @@ async fn oauth_pre_registered_client_skips_dcr_and_refreshes_expired_tokens() {
         "refreshed credentials persisted"
     );
     let _ = SecretString::from(String::new());
+}
+
+// ---- Phase 6a: dashboard reads + browser callback
+
+#[tokio::test]
+async fn dashboard_oauth_callback_completes_and_polling_sees_it() {
+    let (admin, store, _dir) = boot().await;
+    let fake = Fake::start(true, 3600).await;
+    let base = admin.base_url().to_string().trim_end_matches('/').to_owned();
+    let http = reqwest::Client::new();
+    let callback = format!("{base}/api/dashboard/oauth/callback");
+
+    let r = admin
+        .register_server(&http_input("prot", &fake.mcp_url(), Some(&callback)), false)
+        .await
+        .unwrap();
+    let auth = r.authorization_required.unwrap();
+    let state = state_of(&auth.authorization_url);
+
+    // polling: pending
+    let st: serde_json::Value = http
+        .get(format!("{base}/api/dashboard/oauth/session/{}", auth.session_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(st["status"], "pending");
+    assert_eq!(st["server_name"], "prot");
+    // dashboard servers view shows nothing yet (not registered), diagnostics lists the pending session
+    let diag: serde_json::Value = http
+        .get(format!("{base}/api/dashboard/diagnostics"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(diag["pending_oauth"][0]["server_name"], "prot");
+
+    // the browser is redirected to the callback: the backend completes everything
+    let res = http.get(format!("{callback}?code=good-code&state={state}")).send().await.unwrap();
+    assert_eq!(res.status(), 200);
+    let html = res.text().await.unwrap();
+    assert!(html.contains("Authorization received") && html.contains("prot"), "{html}");
+    let st: serde_json::Value = http
+        .get(format!("{base}/api/dashboard/oauth/session/{}", auth.session_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(st["status"], "completed");
+    assert!(store.pending(&auth.session_id).await.unwrap().is_none());
+
+    // sanitized views: the server shows as authorized, no token anywhere
+    let servers: serde_json::Value = http
+        .get(format!("{base}/api/dashboard/servers"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(servers[0]["name"], "prot");
+    assert_eq!(servers[0]["oauth"]["status"], "authorized");
+    assert_eq!(servers[0]["counts"]["tools"], 1);
+    let text = servers.to_string();
+    assert!(
+        !text.contains("at-1") && !text.contains("rt-1") && !text.contains("dcr-client"),
+        "{text}"
+    );
+    let detail: serde_json::Value = http
+        .get(format!("{base}/api/dashboard/servers/prot"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["tools"][0]["name"], "prot__search");
+
+    // callback error paths render a page, never a 500
+    let res = http
+        .get(format!("{callback}?error=access_denied&error_description=nope"))
+        .send()
+        .await
+        .unwrap();
+    assert!(res.text().await.unwrap().contains("access_denied"));
+    let res = http.get(format!("{callback}?code=x&state=unknown")).send().await.unwrap();
+    assert_eq!(res.status(), 200);
+    assert!(res.text().await.unwrap().contains("Authorization failed"));
+    let st: serde_json::Value = http
+        .get(format!("{base}/api/dashboard/oauth/session/nope"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(st["status"], "unknown");
 }

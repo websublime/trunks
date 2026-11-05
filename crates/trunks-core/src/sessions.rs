@@ -40,6 +40,14 @@ struct Slot {
     last_used: AtomicU64, // seconds since `epoch`
 }
 
+/// What the gateway last saw from an upstream (for diagnostics; no active probing).
+#[derive(Debug, Clone, Default)]
+pub struct UpstreamHealth {
+    pub last_error: Option<String>,
+    pub last_error_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_ok_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// A borrowed connection. Dropping it without `release` is safe (stateless: closed by the
 /// drop of the last `Arc`; stateful: stays cached).
 pub struct Lease {
@@ -59,6 +67,7 @@ impl std::fmt::Debug for Lease {
 
 pub struct SessionManager {
     slots: DashMap<ServerName, Arc<Slot>>,
+    health: DashMap<ServerName, UpstreamHealth>,
     opts: SessionOptions,
     epoch: Instant,
     cancel: CancellationToken,
@@ -78,6 +87,7 @@ impl SessionManager {
     pub fn new(opts: SessionOptions) -> Arc<Self> {
         let me = Arc::new(Self {
             slots: DashMap::new(),
+            health: DashMap::new(),
             opts,
             epoch: Instant::now(),
             cancel: CancellationToken::new(),
@@ -114,8 +124,35 @@ impl SessionManager {
         self.active.load(Ordering::Relaxed)
     }
 
+    /// Last known state of each upstream the gateway talked to.
+    #[must_use]
+    pub fn health(&self) -> Vec<(ServerName, UpstreamHealth)> {
+        self.health.iter().map(|e| (e.key().clone(), e.value().clone())).collect()
+    }
+
+    fn note_ok(&self, server: &ServerName) {
+        let mut h = self.health.entry(server.clone()).or_default();
+        h.last_ok_at = Some(chrono::Utc::now());
+        h.last_error = None;
+    }
+
+    fn note_error(&self, server: &ServerName, error: &str) {
+        let mut h = self.health.entry(server.clone()).or_default();
+        h.last_error = Some(error.to_owned());
+        h.last_error_at = Some(chrono::Utc::now());
+    }
+
     /// Obtains a connection for `server` according to its session mode.
     pub async fn acquire(&self, server: &ServerRecord) -> Result<Lease> {
+        let lease = self.acquire_inner(server).await;
+        match &lease {
+            Ok(_) => self.note_ok(&server.name),
+            Err(e) => self.note_error(&server.name, &e.to_string()),
+        }
+        lease
+    }
+
+    async fn acquire_inner(&self, server: &ServerRecord) -> Result<Lease> {
         if self.cancel.is_cancelled() {
             return Err(Error::Internal { reason: "gateway is shutting down".into() });
         }
@@ -156,6 +193,9 @@ impl SessionManager {
     /// invalidates a stateful session so the next call reconnects.
     pub async fn release(&self, lease: Lease, error: Option<&rmcp::service::ServiceError>) {
         let broken = error.is_some_and(is_connection_error);
+        if broken && let Some(e) = error {
+            self.note_error(&lease.server, &e.to_string());
+        }
         if lease.stateful {
             if broken {
                 self.invalidate(&lease.server).await;

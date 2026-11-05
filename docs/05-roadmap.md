@@ -1,6 +1,6 @@
 # Trunks — Roadmap
 
-> Versão 2.0 (2026-11-04). Para lá de v1.0: web app em `line://ui`, OIDC, organizações e equipas. Prioridades, não datas. Depende de `03-plano.md` (v1.0) e de `01-produto.md` (decisões).
+> Versão 2.1 (2026-11-05). Para lá de v1.0. Nota: teams, grants por recurso, web app em enterprise e OIDC para humanos **passaram para a v1** (D14–D17, `03-plano.md` Fase 6); aqui ficam OIDC para MCP clients, organizações multi-tenant e governança. Prioridades, não datas. Depende de `03-plano.md` (v1.0) e de `01-produto.md` (decisões).
 
 ---
 
@@ -19,7 +19,7 @@ flowchart LR
     v10["v1.0<br/>Fases 0–7 do plano<br/>+ web app v0 (line://ui)"]
     v11["v1.x Operabilidade<br/>tokens hasheados · apply declarativo<br/>prompts/resources em grupos · audit log · multi-réplica"]
     v20["v2.0 Identidade<br/>OIDC para humanos e MCP clients<br/>Trunks como OAuth 2.1 resource server"]
-    v21["v2.x Organizações & equipas<br/>orgs · teams · membros · papéis<br/>ACL por recurso, individual e por equipa"]
+    v21["v2.x Organizações<br/>orgs como tenant · papéis de org<br/>(teams e ACL por recurso já em v1)"]
     v30["v3 Governança<br/>credenciais upstream por identidade · policy por tool<br/>SCIM · OTLP · quotas"]
     v10 --> v11 --> v20 --> v21 --> v30
 ```
@@ -29,7 +29,7 @@ flowchart LR
 | v1.0 | Gateway completo, operável por CLI e web app | "Posso usar isto hoje, sozinho ou em equipa?" |
 | v1.x | Operar com confiança | "Consigo gerir isto por GitOps e dormir descansado?" |
 | v2.0 | Sem tokens estáticos | "O Cursor faz login no meu IdP e já está?" |
-| v2.x | Multi-equipa | "A equipa de dados vê os MCPs dela, a de frontend os dela, e eu vejo tudo?" |
+| v2.x | Multi-org | "Duas organizações na mesma instância sem se verem?" (multi-equipa já em v1) |
 | v3 | Governança fina | "Quem usou que tool, com que credencial, e posso limitar?" |
 
 ## 3. v1.0 (+ web app v0)
@@ -39,7 +39,7 @@ Conforme `03-plano.md`; a Fase 6 entrega a primeira versão da web app em `line:
 ### 3.1 Web app v0 (`web/app`)
 - Stack: Lit + `line://ui` (`@websublime/line-*`), Vite, TypeScript. Sem framework de router pesado; `line-` components, tokens `--line-*`, dark-first como o showcase.
 - Âmbito, contra a API `/api/dashboard/*`: overview, servidores (registar incl. OAuth upstream via popup + polling, apagar, toggle), tools/prompts (toggle), tool groups (criar/apagar), resources, diagnósticos.
-- Dev-only e sem auth em v1.0 (`/api/dashboard` é dev-only). A auth chega em v2.0 com `/api/v1`.
+- Em v1 a web app existe em ambos os modos, autenticada em enterprise (token ou OIDC, D15/D16); `/api/dashboard` é só leitura e as mutações usam `/api/v0`.
 - Embebida em `crates/trunks-dashboard` via `cargo xtask build-dashboard`.
 - Esforço: ~3 semanas. Total v1.0 ≈15,5 semanas-pessoa.
 

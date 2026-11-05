@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use trunks_api::AppState;
 use trunks_api::mcp::{McpMounts, McpOptions};
 use trunks_core::catalog::Catalog;
+use trunks_core::dashboard::RuntimeInfo;
 use trunks_core::gateway::GatewayState;
 use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
@@ -82,6 +83,20 @@ async fn boot(mode: ServerMode) -> (String, Option<String>, tempfile::TempDir) {
         identity,
         mode: mode_svc,
         metrics: None,
+        runtime: RuntimeInfo {
+            mode,
+            version: "vtest".into(),
+            started_at: chrono::Utc::now(),
+            database_backend: "sqlite".into(),
+            database_url: "sqlite://test".into(),
+            migrations_latest: None,
+            bind_host: "127.0.0.1".into(),
+            bind_port: 0,
+            allowed_hosts: vec![],
+            upstream_init_timeout_sec: 30,
+            session_idle_timeout_sec: 0,
+            metrics_enabled: false,
+        },
     };
     let app = trunks_api::router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

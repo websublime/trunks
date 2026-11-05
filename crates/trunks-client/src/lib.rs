@@ -61,6 +61,12 @@ impl Client {
         &self.base
     }
 
+    /// The token this client authenticates with, if any.
+    #[must_use]
+    pub fn token(&self) -> Option<&SecretString> {
+        self.token.as_ref()
+    }
+
     /// A copy of this client authenticating with `token`.
     #[must_use]
     pub fn with_token(&self, token: SecretString) -> Self {
