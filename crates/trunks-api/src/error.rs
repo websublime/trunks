@@ -58,9 +58,10 @@ pub fn classify(e: &Error) -> (StatusCode, ApiErrorResponse) {
         Error::Forbidden { .. } | Error::NotInitialized => {
             (StatusCode::FORBIDDEN, ApiErrorResponse::new(msg))
         }
-        Error::Upstream { .. } | Error::Store { .. } | Error::Internal { .. } => {
-            (StatusCode::INTERNAL_SERVER_ERROR, ApiErrorResponse::new(msg))
-        }
+        Error::Upstream { .. }
+        | Error::UpstreamAuthRequired { .. }
+        | Error::Store { .. }
+        | Error::Internal { .. } => (StatusCode::INTERNAL_SERVER_ERROR, ApiErrorResponse::new(msg)),
     }
 }
 

@@ -20,19 +20,54 @@ use secrecy::ExposeSecret as _;
 use trunks_types::ServerName;
 
 use crate::domain::UpstreamConfig;
+use crate::ports::OAuthStore;
 use crate::{Error, Result};
 
 /// Connection settings shared by every upstream.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ConnectOptions {
     /// Timeout for the MCP `initialize` handshake.
     pub init_timeout: Duration,
+    /// Where stored OAuth tokens live; `None` disables OAuth-backed connections.
+    pub oauth: Option<Arc<dyn OAuthStore>>,
+}
+
+impl std::fmt::Debug for ConnectOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectOptions")
+            .field("init_timeout", &self.init_timeout)
+            .field("oauth", &self.oauth.is_some())
+            .finish()
+    }
 }
 
 impl Default for ConnectOptions {
     fn default() -> Self {
-        Self { init_timeout: Duration::from_secs(30) }
+        Self { init_timeout: Duration::from_secs(30), oauth: None }
     }
+}
+
+/// Finds an upstream 401 challenge anywhere in an rmcp error chain.
+fn auth_challenge(e: &(dyn std::error::Error + 'static)) -> Option<String> {
+    let mut cur = Some(e);
+    while let Some(c) = cur {
+        if let Some(a) =
+            c.downcast_ref::<rmcp::transport::streamable_http_client::AuthRequiredError>()
+        {
+            return Some(a.www_authenticate_header.clone());
+        }
+        cur = c.source();
+    }
+    None
+}
+
+fn init_error(server: &ServerName, e: &rmcp::service::ClientInitializeError) -> Error {
+    if let rmcp::service::ClientInitializeError::TransportError { error, .. } = e
+        && let Some(www_authenticate) = auth_challenge(error.error.as_ref())
+    {
+        return Error::UpstreamAuthRequired { server: server.to_string(), www_authenticate };
+    }
+    upstream_err(server, format!("initialize failed: {e}"))
 }
 
 /// A live, initialized MCP client session with one upstream.
@@ -77,7 +112,14 @@ impl UpstreamConn {
                     Self::connect_stdio(&server, command, args, env).await
                 }
                 UpstreamConfig::StreamableHttp { url, bearer_token, headers } => {
-                    Self::connect_http(&server, url, bearer_token.as_ref(), headers).await
+                    Self::connect_http(
+                        &server,
+                        url,
+                        bearer_token.as_ref(),
+                        headers,
+                        opts.oauth.as_ref(),
+                    )
+                    .await
                 }
                 UpstreamConfig::Sse { .. } => Err(upstream_err(
                     &server,
@@ -125,6 +167,7 @@ impl UpstreamConn {
         url: &str,
         bearer: Option<&secrecy::SecretString>,
         headers: &BTreeMap<String, secrecy::SecretString>,
+        oauth: Option<&Arc<dyn OAuthStore>>,
     ) -> Result<Self> {
         let mut hm = reqwest::header::HeaderMap::new();
         for (k, v) in headers {
@@ -151,11 +194,19 @@ impl UpstreamConn {
             .build()
             .map_err(|e| upstream_err(server, e.to_string()))?;
         let cfg = StreamableHttpClientTransportConfig::with_uri(url.to_owned());
-        let transport = StreamableHttpClientTransport::with_client(client, cfg);
-        let peer =
-            ().serve(transport)
-                .await
-                .map_err(|e| upstream_err(server, format!("initialize failed: {e}")))?;
+        // Stored OAuth tokens win over a static bearer: the wrapped client injects a fresh
+        // bearer on every request and refreshes it when it is about to expire.
+        let auth = match oauth {
+            Some(store) => crate::oauth::auth_client(store, server, url, client.clone()).await?,
+            None => None,
+        };
+        let peer = if let Some(auth_client) = auth {
+            let transport = StreamableHttpClientTransport::with_client(auth_client, cfg);
+            ().serve(transport).await.map_err(|e| init_error(server, &e))?
+        } else {
+            let transport = StreamableHttpClientTransport::with_client(client, cfg);
+            ().serve(transport).await.map_err(|e| init_error(server, &e))?
+        };
         Ok(Self { server: server.clone(), peer })
     }
 

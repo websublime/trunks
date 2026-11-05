@@ -136,7 +136,7 @@ async fn connect_errors_are_actionable() {
     let err = UpstreamConn::connect(
         &name,
         &cfg,
-        &ConnectOptions { init_timeout: Duration::from_secs(5) },
+        &ConnectOptions { init_timeout: Duration::from_secs(5), oauth: None },
     )
     .await
     .err()

@@ -33,7 +33,10 @@ async fn boot(mode: ServerMode) -> (Client, Client, tempfile::TempDir) {
     let init = mode_svc.init(mode).await.unwrap();
     let catalog = Catalog::empty();
     catalog.reload(store.as_ref()).await.unwrap();
-    let sessions = SessionManager::new(SessionOptions::default());
+    let sessions = SessionManager::new(SessionOptions {
+        connect: ConnectOptions { oauth: Some(store.clone()), ..ConnectOptions::default() },
+        ..SessionOptions::default()
+    });
     let gateway = Arc::new(GatewayState {
         catalog: catalog.clone(),
         sessions: sessions.clone(),
@@ -45,6 +48,7 @@ async fn boot(mode: ServerMode) -> (Client, Client, tempfile::TempDir) {
         gateway: gateway.clone(),
         mcp: McpMounts::new(gateway, McpOptions::default()),
         registry_service: RegistryService::new(
+            store.clone(),
             store.clone(),
             catalog.clone(),
             sessions,

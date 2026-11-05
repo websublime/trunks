@@ -164,6 +164,13 @@ pub struct AuthorizationRequired {
     pub expires_at: DateTime<Utc>,
 }
 
+/// `POST /api/v0/upstream_oauth/sessions/{id}/complete` body: the authorization response.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompleteOAuthRequest {
+    pub code: String,
+    pub state: String,
+}
+
 /// Query string of `POST /api/v0/servers`. `force` is a strict boolean (`true`/`false`, `1`/`0`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ForceQuery {

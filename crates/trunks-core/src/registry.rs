@@ -9,13 +9,15 @@ use std::sync::Arc;
 
 use secrecy::SecretString;
 use serde_json::Value;
-use trunks_types::api::{EnableDisableResult, RegisterServerInput};
+use trunks_types::api::{AuthorizationRequired, EnableDisableResult, RegisterServerInput};
 use trunks_types::error::messages;
 use trunks_types::{CanonicalName, ResourceUri, ServerName, Transport};
 
 use crate::catalog::{Catalog, Snapshot};
 use crate::domain::{ServerRecord, UpstreamConfig};
-use crate::ports::{Discovered, NewPrompt, NewResource, NewServer, NewTool, RegistryStore};
+use crate::ports::{
+    Discovered, NewPrompt, NewResource, NewServer, NewTool, OAuthStore, RegistryStore,
+};
 use crate::sessions::SessionManager;
 use crate::upstream::{ConnectOptions, UpstreamConn};
 use crate::{Error, Result};
@@ -23,9 +25,17 @@ use crate::{Error, Result};
 #[derive(Clone)]
 pub struct RegistryService {
     store: Arc<dyn RegistryStore>,
+    oauth: Arc<dyn OAuthStore>,
     catalog: Catalog,
     sessions: Arc<SessionManager>,
     connect: ConnectOptions,
+}
+
+/// Result of `register`: either done, or the caller must complete an OAuth authorization.
+#[derive(Debug, Clone)]
+pub enum RegisterOutcome {
+    Registered(Arc<ServerRecord>),
+    AuthorizationRequired(AuthorizationRequired),
 }
 
 impl std::fmt::Debug for RegistryService {
@@ -43,35 +53,62 @@ pub enum EntityKind {
 }
 
 impl RegistryService {
+    /// `connect.oauth` is set from `oauth` so upstream connections use stored tokens.
     #[must_use]
     pub fn new(
         store: Arc<dyn RegistryStore>,
+        oauth: Arc<dyn OAuthStore>,
         catalog: Catalog,
         sessions: Arc<SessionManager>,
-        connect: ConnectOptions,
+        mut connect: ConnectOptions,
     ) -> Self {
-        Self { store, catalog, sessions, connect }
+        connect.oauth = Some(oauth.clone());
+        Self { store, oauth, catalog, sessions, connect }
     }
 
     /// Validates the input, connects to the upstream, discovers its entities and persists
-    /// everything. Nothing is stored when the connection or `tools/list` fails.
+    /// everything. Nothing is stored when the connection or `tools/list` fails. When the
+    /// upstream demands OAuth, the pending authorization is persisted instead (§4.8 phase 1).
     pub async fn register(
         &self,
         input: RegisterServerInput,
         force: bool,
-    ) -> Result<Arc<ServerRecord>> {
+    ) -> Result<RegisterOutcome> {
         let name = ServerName::parse(input.name.clone())?;
-        if input.has_oauth_fields() {
-            return Err(Error::invalid_input(messages::OAUTH_NOT_SUPPORTED_YET));
-        }
         let config = config_from_input(&input)?;
+        if input.has_oauth_fields() && !matches!(config, UpstreamConfig::StreamableHttp { .. }) {
+            return Err(Error::invalid_input(
+                "oauth_* fields only apply to the streamable_http transport",
+            ));
+        }
         if !force && self.catalog.load().servers.contains_key(&name) {
             return Err(Error::invalid_input(format!(
                 "server '{name}' already exists; use force to replace it"
             )));
         }
 
-        let conn = UpstreamConn::connect(&name, &config, &self.connect).await?;
+        let conn = match UpstreamConn::connect(&name, &config, &self.connect).await {
+            Ok(c) => c,
+            Err(Error::UpstreamAuthRequired { www_authenticate, .. }) => {
+                let UpstreamConfig::StreamableHttp { url, .. } = &config else {
+                    return Err(Error::Internal {
+                        reason: "auth challenge on a non-HTTP upstream".into(),
+                    });
+                };
+                let required = crate::oauth::bootstrap(
+                    &self.oauth,
+                    &name,
+                    url,
+                    &input,
+                    force,
+                    Some(&www_authenticate),
+                )
+                .await?;
+                tracing::info!(server = %name, session = %required.session_id, "upstream requires OAuth; authorization pending");
+                return Ok(RegisterOutcome::AuthorizationRequired(required));
+            }
+            Err(e) => return Err(e),
+        };
         let discovered = discover(&name, &conn).await;
         conn.close().await;
         let discovered = discovered?;
@@ -94,7 +131,44 @@ impl RegistryService {
             self.sessions.invalidate(&name).await;
         }
         self.catalog.reload(self.store.as_ref()).await?;
-        Ok(Arc::new(record))
+        Ok(RegisterOutcome::Registered(Arc::new(record)))
+    }
+
+    /// §4.8 phase 2: exchanges the authorization code of a pending session for tokens, then
+    /// registers the server with them. The pending session is consumed either way once the
+    /// exchange succeeded.
+    pub async fn complete_oauth(
+        &self,
+        session_id: &str,
+        code: &str,
+        state: &str,
+    ) -> Result<Arc<ServerRecord>> {
+        let code = code.trim();
+        let state = state.trim();
+        if code.is_empty() || state.is_empty() {
+            return Err(Error::invalid_input("code and state are required"));
+        }
+        let pending = self
+            .oauth
+            .pending(session_id)
+            .await?
+            .ok_or_else(|| Error::not_found(format!("authorization session '{session_id}'")))?;
+        let input: RegisterServerInput = serde_json::from_value(pending.server_input.clone())
+            .map_err(|e| Error::Internal {
+                reason: format!("stored registration input is invalid: {e}"),
+            })?;
+        let url = input.url.clone().ok_or_else(|| Error::Internal {
+            reason: "stored registration input has no url".into(),
+        })?;
+        crate::oauth::exchange(&self.oauth, &pending, &url, code, state).await?;
+        self.oauth.delete_pending(session_id).await?;
+        match self.register(input, pending.force).await? {
+            RegisterOutcome::Registered(server) => Ok(server),
+            RegisterOutcome::AuthorizationRequired(_) => Err(Error::Upstream {
+                server: pending.server_name.to_string(),
+                reason: "the upstream still rejects the new access token".into(),
+            }),
+        }
     }
 
     pub async fn deregister(&self, name: &ServerName) -> Result<()> {
@@ -102,8 +176,14 @@ impl RegistryService {
             return Err(Error::not_found(format!("server '{name}'")));
         }
         self.sessions.invalidate(name).await;
+        self.oauth.delete_oauth(name).await?;
         self.catalog.reload(self.store.as_ref()).await?;
         Ok(())
+    }
+
+    /// Removes expired pending authorizations (called at startup).
+    pub async fn purge_expired_oauth(&self) -> Result<u64> {
+        self.oauth.purge_expired_pending().await
     }
 
     /// Flips the server flag. The affected lists hold the entities whose **effective** state

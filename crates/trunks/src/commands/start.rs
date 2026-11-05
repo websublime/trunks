@@ -97,8 +97,10 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
 
     let metrics_enabled = args.metrics.unwrap_or(args.mode.is_enterprise());
     let metrics = metrics_enabled.then(|| Metrics::new(&trunks_types::version::version()));
+    // The session manager connects for gateway calls, so it needs the OAuth store too.
     let connect = ConnectOptions {
         init_timeout: std::time::Duration::from_secs(args.upstream_init_timeout_sec.max(1)),
+        oauth: Some(store.clone()),
     };
     let sessions = SessionManager::new(SessionOptions {
         connect: connect.clone(),
@@ -112,6 +114,18 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         metrics: metrics.clone(),
         version: trunks_types::version::version(),
     });
+    let registry_service = RegistryService::new(
+        store.clone(),
+        store.clone(),
+        catalog.clone(),
+        sessions.clone(),
+        connect,
+    );
+    match registry_service.purge_expired_oauth().await {
+        Ok(n) if n > 0 => tracing::info!(count = n, "purged expired OAuth authorization sessions"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "could not purge expired OAuth sessions"),
+    }
     let state = AppState {
         catalog: catalog.clone(),
         gateway: gateway.clone(),
@@ -126,12 +140,7 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
                     .collect(),
             },
         ),
-        registry_service: RegistryService::new(
-            store.clone(),
-            catalog.clone(),
-            sessions.clone(),
-            connect,
-        ),
+        registry_service,
         groups: GroupService::new(store.clone(), catalog.clone()),
         registry: store.clone(),
         identity,

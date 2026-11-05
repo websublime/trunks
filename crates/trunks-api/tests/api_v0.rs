@@ -58,6 +58,7 @@ async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
         mcp: McpMounts::new(gateway.clone(), McpOptions::default()),
         registry_service: RegistryService::new(
             store.clone(),
+            store.clone(),
             gateway.catalog.clone(),
             gateway.sessions.clone(),
             ConnectOptions::default(),

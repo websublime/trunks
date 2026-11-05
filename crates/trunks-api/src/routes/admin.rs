@@ -6,9 +6,11 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use trunks_core::Error;
 use trunks_core::registry::EntityKind;
+use trunks_core::registry::RegisterOutcome;
 use trunks_types::ServerName;
 use trunks_types::api::{
-    EnableDisableResult, EntityQuery, ForceQuery, RegisterServerInput, RegisterServerResult,
+    CompleteOAuthRequest, EnableDisableResult, EntityQuery, ForceQuery, RegisterServerInput,
+    RegisterServerResult,
 };
 use trunks_types::error::messages;
 
@@ -23,6 +25,7 @@ pub fn router() -> Router<AppState> {
         .route("/servers/{name}/enable", post(enable_server))
         .route("/servers/{name}/disable", post(disable_server))
         .route("/server_configs", get(server_configs))
+        .route("/upstream_oauth/sessions/{id}/complete", post(complete_oauth))
         .route("/tools/enable", post(enable_tools))
         .route("/tools/disable", post(disable_tools))
         .route("/prompts/enable", post(enable_prompts))
@@ -46,7 +49,27 @@ async fn register_server(
     JsonBody(input): JsonBody<RegisterServerInput>,
 ) -> Result<(StatusCode, Json<RegisterServerResult>), ApiError> {
     let force = parse_force(&q)?;
-    let server = st.registry_service.register(input, force).await?;
+    match st.registry_service.register(input, force).await? {
+        RegisterOutcome::Registered(server) => Ok((
+            StatusCode::CREATED,
+            Json(RegisterServerResult {
+                server: Some(server.to_api()),
+                authorization_required: None,
+            }),
+        )),
+        RegisterOutcome::AuthorizationRequired(a) => Ok((
+            StatusCode::ACCEPTED,
+            Json(RegisterServerResult { server: None, authorization_required: Some(a) }),
+        )),
+    }
+}
+
+async fn complete_oauth(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<CompleteOAuthRequest>,
+) -> Result<(StatusCode, Json<RegisterServerResult>), ApiError> {
+    let server = st.registry_service.complete_oauth(&id, &body.code, &body.state).await?;
     Ok((
         StatusCode::CREATED,
         Json(RegisterServerResult { server: Some(server.to_api()), authorization_required: None }),
