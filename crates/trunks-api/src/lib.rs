@@ -21,10 +21,12 @@ pub use state::AppState;
 pub fn router(state: AppState) -> Router {
     let api_v0 = Router::new()
         .merge(routes::registry::user_router())
+        .merge(routes::groups::read_router())
         .merge(routes::invoke::router())
         .merge(
             routes::admin::router()
                 .merge(routes::groups::router())
+                .merge(routes::access::grants_router())
                 .route_layer(from_fn(middleware::require_admin)),
         )
         .merge(
@@ -34,7 +36,9 @@ pub fn router(state: AppState) -> Router {
         )
         .merge(
             routes::registry::enterprise_user_router()
-                .layer(from_fn(middleware::require_enterprise)),
+                .merge(routes::identities::clients_router())
+                .merge(routes::access::teams_router())
+                .route_layer(from_fn(middleware::require_enterprise)),
         )
         .layer(from_fn_with_state(state.clone(), middleware::user_auth))
         .layer(from_fn_with_state(state.clone(), middleware::require_initialized));

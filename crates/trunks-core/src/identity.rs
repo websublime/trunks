@@ -7,19 +7,21 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::RngCore as _;
 use snafu::ensure;
 use trunks_types::error::messages;
-use trunks_types::{Role, ServerMode, ServerName};
+use trunks_types::{CanonicalName, Role, ServerMode, ServerName};
 
+use crate::access::{AccessSet, SubjectKind, TargetKind, TeamRole};
 use crate::domain::{McpClientRecord, UserRecord};
-use crate::ports::IdentityStore;
+use crate::ports::{AccessStore, GrantRecord, IdentityStore, TeamMemberRecord, TeamRecord};
 use crate::{Error, Result, error};
 
 /// Who is calling the **MCP** endpoints. Produced by middleware, consumed by the gateway.
+/// The access set is resolved once, at authentication (D14).
 #[derive(Debug, Clone)]
 pub enum Principal {
     /// Development mode: no authentication, everything is visible.
     DevOpen,
-    /// Enterprise mode: an MCP client with its allow-list.
-    McpClient(Arc<McpClientRecord>),
+    /// Enterprise mode: an MCP client with its effective access.
+    McpClient { client: Arc<McpClientRecord>, access: Arc<AccessSet> },
 }
 
 impl Principal {
@@ -27,7 +29,16 @@ impl Principal {
     pub fn may_access(&self, server: &ServerName) -> bool {
         match self {
             Self::DevOpen => true,
-            Self::McpClient(c) => c.may_access(server),
+            Self::McpClient { access, .. } => access.may_use_server(server),
+        }
+    }
+
+    /// Server access, or access through a granted tool group that resolves to the tool.
+    #[must_use]
+    pub fn may_use_tool(&self, snap: &crate::catalog::Snapshot, tool: &CanonicalName) -> bool {
+        match self {
+            Self::DevOpen => true,
+            Self::McpClient { access, .. } => access.may_use_tool(snap, tool),
         }
     }
 
@@ -35,16 +46,16 @@ impl Principal {
     pub fn label(&self) -> String {
         match self {
             Self::DevOpen => "dev".into(),
-            Self::McpClient(c) => c.name.clone(),
+            Self::McpClient { client, .. } => client.name.clone(),
         }
     }
 }
 
-/// Who is calling the **REST** API.
+/// Who is calling the **REST** API, with what they may see and use.
 #[derive(Debug, Clone)]
 pub enum UserPrincipal {
     DevOpen,
-    User(Arc<UserRecord>),
+    User { user: Arc<UserRecord>, access: Arc<AccessSet>, teams: Arc<Vec<(TeamRecord, TeamRole)>> },
 }
 
 impl UserPrincipal {
@@ -52,7 +63,74 @@ impl UserPrincipal {
     pub fn is_admin(&self) -> bool {
         match self {
             Self::DevOpen => true,
-            Self::User(u) => u.role == Role::Admin,
+            Self::User { user, .. } => user.role == Role::Admin,
+        }
+    }
+
+    #[must_use]
+    pub fn access(&self) -> AccessSet {
+        match self {
+            Self::DevOpen => AccessSet::everything(),
+            Self::User { access, .. } => (**access).clone(),
+        }
+    }
+
+    #[must_use]
+    pub fn may_use_server(&self, server: &ServerName) -> bool {
+        match self {
+            Self::DevOpen => true,
+            Self::User { access, .. } => access.may_use_server(server),
+        }
+    }
+
+    #[must_use]
+    pub fn may_use_tool(&self, snap: &crate::catalog::Snapshot, tool: &CanonicalName) -> bool {
+        match self {
+            Self::DevOpen => true,
+            Self::User { access, .. } => access.may_use_tool(snap, tool),
+        }
+    }
+
+    #[must_use]
+    pub fn may_use_group(&self, group: &trunks_types::GroupName) -> bool {
+        match self {
+            Self::DevOpen => true,
+            Self::User { access, .. } => access.may_use_group(group),
+        }
+    }
+
+    /// The user's id, `None` in development mode.
+    #[must_use]
+    pub fn user_id(&self) -> Option<i64> {
+        match self {
+            Self::DevOpen => None,
+            Self::User { user, .. } => Some(user.id),
+        }
+    }
+
+    /// Subjects this principal owns clients as: itself and the teams it belongs to.
+    #[must_use]
+    pub fn subjects(&self) -> Vec<(SubjectKind, i64)> {
+        match self {
+            Self::DevOpen => vec![],
+            Self::User { user, teams, .. } => std::iter::once((SubjectKind::User, user.id))
+                .chain(teams.iter().map(|(t, _)| (SubjectKind::Team, t.id)))
+                .collect(),
+        }
+    }
+
+    /// Whether this principal may act for `subject` (itself, or a team it maintains).
+    #[must_use]
+    pub fn may_act_for(&self, subject: (SubjectKind, i64)) -> bool {
+        match self {
+            Self::DevOpen => true,
+            Self::User { user, teams, .. } => {
+                user.role == Role::Admin
+                    || subject == (SubjectKind::User, user.id)
+                    || teams.iter().any(|(t, r)| {
+                        subject == (SubjectKind::Team, t.id) && *r == TeamRole::Maintainer
+                    })
+            }
         }
     }
 }
@@ -77,6 +155,7 @@ pub fn validate_custom_token(token: &str) -> Result<()> {
 #[derive(Clone)]
 pub struct IdentityService {
     store: Arc<dyn IdentityStore>,
+    access: Arc<dyn AccessStore>,
 }
 
 impl std::fmt::Debug for IdentityService {
@@ -87,8 +166,35 @@ impl std::fmt::Debug for IdentityService {
 
 impl IdentityService {
     #[must_use]
-    pub fn new(store: Arc<dyn IdentityStore>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<dyn IdentityStore>, access: Arc<dyn AccessStore>) -> Self {
+        Self { store, access }
+    }
+
+    /// Effective access of a user: everything for admins, else the union of own and team grants.
+    pub async fn access_of_user(&self, user: &UserRecord) -> Result<AccessSet> {
+        if user.role == Role::Admin {
+            return Ok(AccessSet::everything());
+        }
+        let grants = self.access.effective_grants_for_user(user.id).await?;
+        Ok(AccessSet::from_grants(&grants))
+    }
+
+    /// Effective access of an MCP client: owner's set narrowed by the allow list, or the
+    /// allow list alone for ownerless clients.
+    pub async fn access_of_client(&self, client: &McpClientRecord) -> Result<AccessSet> {
+        let Some((kind, id)) = client.owner else {
+            return Ok(AccessSet::from_allow_list(&client.allow_list));
+        };
+        let owner = match kind {
+            SubjectKind::User => match self.store.user_by_id(id).await? {
+                Some(u) => self.access_of_user(&u).await?,
+                None => AccessSet::nothing(),
+            },
+            SubjectKind::Team => AccessSet::from_grants(
+                &self.access.grants_for_subject(SubjectKind::Team, id).await?,
+            ),
+        };
+        Ok(owner.narrowed_by(&client.allow_list))
     }
 
     /// Resolves a REST caller. In development mode everyone is `DevOpen`.
@@ -104,7 +210,15 @@ impl IdentityService {
             .filter(|t| !t.is_empty())
             .ok_or_else(|| Error::Unauthorized { reason: messages::MISSING_ACCESS_TOKEN.into() })?;
         match self.store.user_by_token(token).await? {
-            Some(u) => Ok(UserPrincipal::User(Arc::new(u))),
+            Some(u) => {
+                let access = self.access_of_user(&u).await?;
+                let teams = self.access.teams_of_user(u.id).await?;
+                Ok(UserPrincipal::User {
+                    user: Arc::new(u),
+                    access: Arc::new(access),
+                    teams: Arc::new(teams),
+                })
+            }
             None => Err(Error::Unauthorized {
                 reason: format!("{}: no user matches this token", messages::INVALID_ACCESS_TOKEN),
             }),
@@ -124,7 +238,10 @@ impl IdentityService {
             reason: messages::MISSING_MCP_CLIENT_TOKEN.into(),
         })?;
         match self.store.client_by_token(token).await? {
-            Some(c) => Ok(Principal::McpClient(Arc::new(c))),
+            Some(c) => {
+                let access = self.access_of_client(&c).await?;
+                Ok(Principal::McpClient { client: Arc::new(c), access: Arc::new(access) })
+            }
             None => Err(Error::Unauthorized { reason: messages::INVALID_MCP_CLIENT_TOKEN.into() }),
         }
     }
@@ -197,6 +314,7 @@ impl IdentityService {
         description: &str,
         allow_list: &[String],
         custom_token: Option<&str>,
+        owner: Option<(SubjectKind, i64)>,
     ) -> Result<(McpClientRecord, String)> {
         let name = validate_identity_name(name, messages::NAME_REQUIRED)?;
         validate_allow_list(allow_list)?;
@@ -204,8 +322,133 @@ impl IdentityService {
             return Err(Error::invalid_input(format!("MCP client '{name}' already exists")));
         }
         let token = resolve_token(custom_token)?;
-        let client = self.store.create_client(name, description, &token, allow_list).await?;
+        let client = self.store.create_client(name, description, &token, allow_list, owner).await?;
         Ok((client, token))
+    }
+
+    pub async fn client_by_name(&self, name: &str) -> Result<Option<McpClientRecord>> {
+        self.store.client_by_name(name).await
+    }
+
+    pub async fn clients_owned_by(
+        &self,
+        subjects: &[(SubjectKind, i64)],
+    ) -> Result<Vec<McpClientRecord>> {
+        self.store.clients_owned_by(subjects).await
+    }
+
+    /// Resolves a subject given by kind and name to its id.
+    pub async fn subject_id(&self, kind: SubjectKind, name: &str) -> Result<i64> {
+        match kind {
+            SubjectKind::User => self
+                .store
+                .user_by_name(name)
+                .await?
+                .map(|u| u.id)
+                .ok_or_else(|| Error::not_found(format!("user '{name}'"))),
+            SubjectKind::Team => self
+                .access
+                .team_by_name(name)
+                .await?
+                .map(|t| t.id)
+                .ok_or_else(|| Error::not_found(format!("team '{name}'"))),
+        }
+    }
+
+    /// Name of a subject by id (for API views). `None` if it no longer exists.
+    pub async fn subject_name(&self, subject: (SubjectKind, i64)) -> Result<Option<String>> {
+        Ok(match subject.0 {
+            SubjectKind::User => self.store.user_by_id(subject.1).await?.map(|u| u.username),
+            SubjectKind::Team => self.access.team_by_id(subject.1).await?.map(|t| t.name),
+        })
+    }
+
+    // ---- teams
+
+    pub async fn teams(&self) -> Result<Vec<TeamRecord>> {
+        self.access.teams().await
+    }
+
+    pub async fn team_by_name(&self, name: &str) -> Result<TeamRecord> {
+        self.access
+            .team_by_name(name)
+            .await?
+            .ok_or_else(|| Error::not_found(format!("team '{name}'")))
+    }
+
+    pub async fn create_team(&self, name: &str, description: &str) -> Result<TeamRecord> {
+        let name = validate_identity_name(name, messages::NAME_REQUIRED)?;
+        if self.access.team_by_name(name).await?.is_some() {
+            return Err(Error::invalid_input(format!("team '{name}' already exists")));
+        }
+        self.access.create_team(name, description.trim()).await
+    }
+
+    pub async fn update_team(&self, name: &str, description: &str) -> Result<TeamRecord> {
+        if !self.access.update_team(name, description.trim()).await? {
+            return Err(Error::not_found(format!("team '{name}'")));
+        }
+        self.team_by_name(name).await
+    }
+
+    /// Idempotent.
+    pub async fn delete_team(&self, name: &str) -> Result<()> {
+        self.access.delete_team(name).await?;
+        Ok(())
+    }
+
+    pub async fn members(&self, team: &TeamRecord) -> Result<Vec<TeamMemberRecord>> {
+        self.access.members(team.id).await
+    }
+
+    pub async fn add_member(
+        &self,
+        team: &TeamRecord,
+        username: &str,
+        role: TeamRole,
+    ) -> Result<()> {
+        let user = self
+            .store
+            .user_by_name(username)
+            .await?
+            .ok_or_else(|| Error::not_found(format!("user '{username}'")))?;
+        self.access.add_member(team.id, user.id, role).await
+    }
+
+    /// Idempotent.
+    pub async fn remove_member(&self, team: &TeamRecord, username: &str) -> Result<()> {
+        if let Some(user) = self.store.user_by_name(username).await? {
+            self.access.remove_member(team.id, user.id).await?;
+        }
+        Ok(())
+    }
+
+    // ---- grants
+
+    pub async fn grants(&self, target: Option<(TargetKind, &str)>) -> Result<Vec<GrantRecord>> {
+        self.access.grants(target).await
+    }
+
+    /// Validates the target name (`*` only for servers) and records the grant. Idempotent.
+    pub async fn grant(
+        &self,
+        subject: (SubjectKind, &str),
+        target: (TargetKind, &str),
+    ) -> Result<bool> {
+        let id = self.subject_id(subject.0, subject.1).await?;
+        let target_name = validate_target(target)?;
+        self.access.add_grant((subject.0, id), (target.0, &target_name)).await
+    }
+
+    /// Idempotent.
+    pub async fn revoke(
+        &self,
+        subject: (SubjectKind, &str),
+        target: (TargetKind, &str),
+    ) -> Result<bool> {
+        let id = self.subject_id(subject.0, subject.1).await?;
+        let target_name = validate_target(target)?;
+        self.access.remove_grant((subject.0, id), (target.0, &target_name)).await
     }
 
     /// Updates the given fields; `new_token` is `Some` to rotate (custom or generated).
@@ -237,6 +480,15 @@ impl IdentityService {
     pub async fn delete_client(&self, name: &str) -> Result<()> {
         self.store.delete_client(name).await?;
         Ok(())
+    }
+}
+
+fn validate_target((kind, name): (TargetKind, &str)) -> Result<String> {
+    let name = name.trim();
+    match kind {
+        TargetKind::Server if name == "*" => Ok(name.to_owned()),
+        TargetKind::Server => Ok(ServerName::parse(name.to_owned())?.to_string()),
+        TargetKind::ToolGroup => Ok(trunks_types::GroupName::parse(name)?.to_string()),
     }
 }
 

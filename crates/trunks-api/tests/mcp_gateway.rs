@@ -56,7 +56,7 @@ async fn boot(mode: ServerMode) -> (String, Option<String>, tempfile::TempDir) {
         sqlx::raw_sql("INSERT INTO mcp_clients (created_at, updated_at, name, description, access_token, allow_list) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','cli-alpha','','tok-alpha-0123456789',json('[\"alpha\"]'))").execute(p).await.unwrap();
     });
     let store = Arc::new(Store(db));
-    let identity = IdentityService::new(store.clone());
+    let identity = IdentityService::new(store.clone(), store.clone());
     let mode_svc = ModeService::load(store.clone(), identity.clone()).await.unwrap();
     let init = mode_svc.init(mode).await.unwrap();
     let catalog = Catalog::empty();

@@ -6,15 +6,18 @@ use crate::{Db, Result, with_pool};
 const USERS: &str =
     "SELECT id, username, role, access_token FROM users WHERE deleted_at IS NULL ORDER BY username";
 const USER_BY_TOKEN: &str = "SELECT id, username, role, access_token FROM users WHERE access_token = $1 AND deleted_at IS NULL";
-const CLIENTS: &str = "SELECT id, name, description, access_token, allow_list FROM mcp_clients WHERE deleted_at IS NULL ORDER BY name";
-const CLIENT_BY_TOKEN: &str = "SELECT id, name, description, access_token, allow_list FROM mcp_clients WHERE access_token = $1 AND deleted_at IS NULL";
+const CLIENT_COLS: &str = "id, name, description, access_token, allow_list, owner_kind, owner_id";
+const CLIENTS: &str = "SELECT id, name, description, access_token, allow_list, owner_kind, owner_id FROM mcp_clients WHERE deleted_at IS NULL ORDER BY name";
+const CLIENT_BY_TOKEN: &str = "SELECT id, name, description, access_token, allow_list, owner_kind, owner_id FROM mcp_clients WHERE access_token = $1 AND deleted_at IS NULL";
 
 const USER_BY_NAME: &str =
     "SELECT id, username, role, access_token FROM users WHERE username = $1 AND deleted_at IS NULL";
 const UPDATE_USER_TOKEN: &str = "UPDATE users SET access_token = $1, updated_at = $2 WHERE username = $3 AND deleted_at IS NULL";
 const DELETE_USER: &str = "DELETE FROM users WHERE username = $1 AND deleted_at IS NULL";
-const CLIENT_BY_NAME: &str = "SELECT id, name, description, access_token, allow_list FROM mcp_clients WHERE name = $1 AND deleted_at IS NULL";
-const INSERT_CLIENT: &str = "INSERT INTO mcp_clients (created_at, updated_at, name, description, access_token, allow_list) VALUES ($1, $1, $2, $3, $4, $5) RETURNING id, name, description, access_token, allow_list";
+const CLIENT_BY_NAME: &str = "SELECT id, name, description, access_token, allow_list, owner_kind, owner_id FROM mcp_clients WHERE name = $1 AND deleted_at IS NULL";
+const USER_BY_ID: &str =
+    "SELECT id, username, role, access_token FROM users WHERE id = $1 AND deleted_at IS NULL";
+const INSERT_CLIENT: &str = "INSERT INTO mcp_clients (created_at, updated_at, name, description, access_token, allow_list, owner_kind, owner_id) VALUES ($1, $1, $2, $3, $4, $5, $6, $7) RETURNING id, name, description, access_token, allow_list, owner_kind, owner_id";
 const UPDATE_CLIENT: &str = "UPDATE mcp_clients SET description = COALESCE($1, description), allow_list = COALESCE($2, allow_list), access_token = COALESCE($3, access_token), updated_at = $4 WHERE name = $5 AND deleted_at IS NULL";
 const DELETE_CLIENT: &str = "DELETE FROM mcp_clients WHERE name = $1 AND deleted_at IS NULL";
 
@@ -84,6 +87,7 @@ pub async fn create_client(
     description: &str,
     token: &str,
     allow_list: &[String],
+    owner: Option<(&str, i64)>,
 ) -> Result<McpClientRow> {
     let now = chrono::Utc::now();
     let allow = sqlx::types::Json(serde_json::Value::from(allow_list.to_vec()));
@@ -93,8 +97,22 @@ pub async fn create_client(
         .bind(description)
         .bind(token)
         .bind(allow)
+        .bind(owner.map(|o| o.0))
+        .bind(owner.map(|o| o.1))
         .fetch_one(p)
         .await?))
+}
+
+pub async fn user_by_id(db: &Db, id: i64) -> Result<Option<UserRow>> {
+    Ok(with_pool!(db, |p| sqlx::query_as(USER_BY_ID).bind(id).fetch_optional(p).await?))
+}
+
+/// Clients owned by one subject.
+pub async fn clients_owned_by(db: &Db, kind: &str, id: i64) -> Result<Vec<McpClientRow>> {
+    let sql = format!(
+        "SELECT {CLIENT_COLS} FROM mcp_clients WHERE owner_kind = $1 AND owner_id = $2 AND deleted_at IS NULL ORDER BY name"
+    );
+    Ok(with_pool!(db, |p| sqlx::query_as(&sql).bind(kind).bind(id).fetch_all(p).await?))
 }
 
 /// `None` fields keep their current value (`COALESCE`).

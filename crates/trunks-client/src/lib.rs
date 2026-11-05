@@ -6,11 +6,12 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 use snafu::{ResultExt, Snafu};
 use trunks_types::api::{
-    CompleteOAuthRequest, CreateMcpClientRequest, CreateUserRequest, EnableDisableResult,
-    InitRequest, InitResponse, McpClient, McpClientWithToken, McpServer, Prompt,
-    PromptRenderResult, RegisterServerInput, RegisterServerResult, Resource, ResourceReadResult,
-    ServerMetadata, Tool, ToolGroup, ToolGroupWithEndpoints, ToolInvokeResult,
-    UpdateMcpClientRequest, UpdateToolGroupResponse, UpdateUserRequest, User, UserWithToken,
+    AddTeamMemberRequest, CompleteOAuthRequest, CreateMcpClientRequest, CreateUserRequest,
+    EnableDisableResult, GrantSpec, InitRequest, InitResponse, McpClient, McpClientWithToken,
+    McpServer, Prompt, PromptRenderResult, RegisterServerInput, RegisterServerResult, Resource,
+    ResourceReadResult, ServerMetadata, Team, TeamDetail, Tool, ToolGroup, ToolGroupWithEndpoints,
+    ToolInvokeResult, UpdateMcpClientRequest, UpdateToolGroupResponse, UpdateUserRequest, User,
+    UserWithToken, WhoAmI,
 };
 use trunks_types::{ApiErrorResponse, ServerMode};
 
@@ -143,8 +144,56 @@ impl Client {
         self.post("api/v0/resources/read", &[], &serde_json::json!({ "uri": uri })).await
     }
 
-    pub async fn whoami(&self) -> Result<User> {
+    pub async fn whoami(&self) -> Result<WhoAmI> {
         self.get("api/v0/users/whoami", &[]).await
+    }
+
+    // ---- /api/v0, teams and grants (enterprise)
+    pub async fn list_teams(&self) -> Result<Vec<Team>> {
+        self.get("api/v0/teams", &[]).await
+    }
+
+    pub async fn get_team(&self, name: &str) -> Result<TeamDetail> {
+        self.get(&format!("api/v0/teams/{name}"), &[]).await
+    }
+
+    pub async fn create_team(&self, team: &Team) -> Result<TeamDetail> {
+        self.post("api/v0/teams", &[], team).await
+    }
+
+    pub async fn delete_team(&self, name: &str) -> Result<()> {
+        self.delete(&format!("api/v0/teams/{name}")).await
+    }
+
+    pub async fn add_team_member(
+        &self,
+        team: &str,
+        req: &AddTeamMemberRequest,
+    ) -> Result<TeamDetail> {
+        self.post(&format!("api/v0/teams/{team}/members"), &[], req).await
+    }
+
+    pub async fn remove_team_member(&self, team: &str, username: &str) -> Result<()> {
+        self.delete(&format!("api/v0/teams/{team}/members/{username}")).await
+    }
+
+    pub async fn list_grants(&self, target: Option<(&str, &str)>) -> Result<Vec<GrantSpec>> {
+        let q: Vec<(&str, &str)> = match target {
+            Some((k, t)) => vec![("target_kind", k), ("target", t)],
+            None => vec![],
+        };
+        self.get("api/v0/grants", &q).await
+    }
+
+    pub async fn grant(&self, spec: &GrantSpec) -> Result<GrantSpec> {
+        self.post("api/v0/grants", &[], spec).await
+    }
+
+    pub async fn revoke(&self, spec: &GrantSpec) -> Result<()> {
+        let url = self.join("api/v0/grants")?;
+        let res =
+            self.authorized(self.http.delete(url).json(spec)).send().await.context(HttpSnafu)?;
+        Self::decode_empty(res).await
     }
 
     // ---- /api/v0, admin level

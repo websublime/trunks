@@ -85,6 +85,46 @@ pub struct McpClientRow {
     pub description: Option<String>,
     pub access_token: String,
     pub allow_list: Json<Value>,
+    pub owner_kind: Option<String>,
+    pub owner_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct TeamRow {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct TeamMemberRow {
+    pub team_id: i64,
+    pub user_id: i64,
+    pub username: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct UserTeamRow {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct GrantRow {
+    pub subject_kind: String,
+    pub subject_id: i64,
+    pub subject_name: String,
+    pub target_kind: String,
+    pub target_name: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct BareGrantRow {
+    pub target_kind: String,
+    pub target_name: String,
 }
 
 #[derive(Debug, Clone, FromRow)]

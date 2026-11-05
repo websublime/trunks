@@ -29,7 +29,7 @@ async fn boot(mode: ServerMode) -> (Client, Client, tempfile::TempDir) {
     let db = Db::connect(&format!("sqlite://{}/db.sqlite", dir.path().display()), 4).await.unwrap();
     db.migrate().await.unwrap();
     let store = Arc::new(Store(db));
-    let identity = IdentityService::new(store.clone());
+    let identity = IdentityService::new(store.clone(), store.clone());
     let mode_svc = ModeService::load(store.clone(), identity.clone()).await.unwrap();
     let init = mode_svc.init(mode).await.unwrap();
     let catalog = Catalog::empty();
@@ -622,7 +622,9 @@ async fn tool_groups_never_widen_a_client_allow_list() {
         api_status(&as_bob.create_group(&group("x", &[], &["alpha"], &[])).await.unwrap_err()),
         403
     );
-    assert_eq!(api_status(&as_bob.list_groups().await.unwrap_err()), 403);
+    // D14: users may list groups, but only the ones granted to them
+    assert!(as_bob.list_groups().await.unwrap().is_empty());
+    assert_eq!(api_status(&as_bob.get_group("both").await.unwrap_err()), 404);
 }
 
 // ---- Phase 6a: dashboard reads
@@ -712,4 +714,326 @@ async fn dashboard_reads_are_sanitized_and_gated_in_enterprise() {
 
 fn admin_token(c: &Client) -> String {
     c.token().map(|t| secrecy::ExposeSecret::expose_secret(t).to_owned()).unwrap_or_default()
+}
+
+// ---- Phase 6b: teams, grants, owned clients (D14)
+
+use trunks_types::api::{AddTeamMemberRequest, GrantSpec, Owner, Team};
+
+fn grant(sk: &str, s: &str, tk: &str, t: &str) -> GrantSpec {
+    GrantSpec {
+        subject_kind: sk.into(),
+        subject: s.into(),
+        target_kind: tk.into(),
+        target: t.into(),
+    }
+}
+
+async fn user_client(admin: &Client, anon: &Client, name: &str) -> Client {
+    let u = admin
+        .create_user(&CreateUserRequest { username: name.into(), access_token: None })
+        .await
+        .unwrap();
+    anon.with_token(SecretString::from(u.access_token))
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn names<T, F: Fn(&T) -> String>(items: Vec<T>, f: F) -> Vec<String> {
+    items.iter().map(f).collect()
+}
+
+#[tokio::test]
+async fn grants_drive_what_users_see_and_invoke() {
+    let (admin, anon, _dir) = boot(ServerMode::Enterprise).await;
+    admin.register_server(&stdio_input("alpha"), false).await.unwrap();
+    admin.register_server(&stdio_input("beta"), false).await.unwrap();
+    admin.create_group(&group("dev", &["beta__echo"], &[], &[])).await.unwrap();
+    let bob = user_client(&admin, &anon, "bob").await;
+
+    // secure by default: nothing
+    assert!(bob.list_servers().await.unwrap().is_empty());
+    assert!(bob.list_tools(None).await.unwrap().is_empty());
+    assert!(bob.list_groups().await.unwrap().is_empty());
+    assert_eq!(
+        api_status(&bob.invoke_tool("alpha__echo", serde_json::Map::new()).await.unwrap_err()),
+        404
+    );
+    assert_eq!(api_status(&bob.get_tool("alpha__echo").await.unwrap_err()), 404);
+    let me = bob.whoami().await.unwrap();
+    assert!(!me.access.all && me.access.servers.is_empty());
+
+    // users cannot grant; admins can; validation of kinds and names
+    assert_eq!(
+        api_status(&bob.grant(&grant("user", "bob", "server", "alpha")).await.unwrap_err()),
+        403
+    );
+    assert_eq!(
+        api_status(&admin.grant(&grant("robot", "bob", "server", "alpha")).await.unwrap_err()),
+        400
+    );
+    assert_eq!(
+        api_status(&admin.grant(&grant("user", "bob", "server", "bad__name")).await.unwrap_err()),
+        400
+    );
+    assert_eq!(
+        api_status(&admin.grant(&grant("user", "nobody", "server", "alpha")).await.unwrap_err()),
+        404
+    );
+
+    // direct server grant: sees alpha only, can invoke, prompts/resources follow the server
+    admin.grant(&grant("user", "bob", "server", "alpha")).await.unwrap();
+    assert_eq!(names(bob.list_servers().await.unwrap(), |s| s.name.to_string()), ["alpha"]);
+    assert_eq!(bob.list_tools(None).await.unwrap().len(), 3);
+    assert_eq!(bob.list_prompts(None).await.unwrap().len(), 1);
+    assert_eq!(bob.list_resources(None).await.unwrap().len(), 1);
+    let out = bob
+        .invoke_tool("alpha__echo", serde_json::json!({"text": "hi"}).as_object().cloned().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(out.content[0]["text"], "hi");
+    assert_eq!(
+        api_status(&bob.invoke_tool("beta__echo", serde_json::Map::new()).await.unwrap_err()),
+        404
+    );
+    let me = bob.whoami().await.unwrap();
+    assert_eq!(me.access.servers, ["alpha"]);
+    // idempotent grant → 200, listing by target
+    admin.grant(&grant("user", "bob", "server", "alpha")).await.unwrap();
+    let on_alpha = admin.list_grants(Some(("server", "alpha"))).await.unwrap();
+    assert_eq!(on_alpha.len(), 1);
+    assert_eq!(on_alpha[0].subject, "bob");
+
+    // a group grant exposes exactly the group's effective tools (beta__echo), not all of beta,
+    // and beta's prompts/resources stay hidden; the server shows as visible through the group
+    admin.grant(&grant("user", "bob", "tool_group", "dev")).await.unwrap();
+    let tools = names(bob.list_tools(None).await.unwrap(), |t| t.name.to_string());
+    assert_eq!(tools, ["alpha__echo", "alpha__echo_headers", "alpha__fail", "beta__echo"]);
+    assert_eq!(names(bob.list_servers().await.unwrap(), |s| s.name.to_string()), ["alpha", "beta"]);
+    assert_eq!(bob.list_prompts(None).await.unwrap().len(), 1, "beta's prompt is not granted");
+    assert_eq!(names(bob.list_groups().await.unwrap(), |g| g.name.clone()), ["dev"]);
+    assert_eq!(bob.group_tools("dev").await.unwrap().len(), 1);
+    assert!(
+        bob.invoke_tool(
+            "beta__echo",
+            serde_json::json!({"text": "x"}).as_object().cloned().unwrap()
+        )
+        .await
+        .is_ok()
+    );
+    assert_eq!(
+        api_status(&bob.invoke_tool("beta__fail", serde_json::Map::new()).await.unwrap_err()),
+        404
+    );
+
+    // revoke the group → beta disappears again
+    admin.revoke(&grant("user", "bob", "tool_group", "dev")).await.unwrap();
+    assert_eq!(bob.list_tools(None).await.unwrap().len(), 3);
+
+    // wildcard
+    admin.grant(&grant("user", "bob", "server", "*")).await.unwrap();
+    assert!(bob.whoami().await.unwrap().access.all);
+    assert_eq!(bob.list_tools(None).await.unwrap().len(), 6);
+}
+
+#[tokio::test]
+async fn teams_memberships_and_owned_clients() {
+    let (admin, anon, _dir) = boot(ServerMode::Enterprise).await;
+    let base = admin.base_url().to_string().trim_end_matches('/').to_owned();
+    admin.register_server(&stdio_input("alpha"), false).await.unwrap();
+    admin.register_server(&stdio_input("beta"), false).await.unwrap();
+    let bob = user_client(&admin, &anon, "bob").await;
+    let carol = user_client(&admin, &anon, "carol").await;
+
+    // teams: admin creates; users read; validation
+    assert_eq!(
+        api_status(
+            &bob.create_team(&Team { name: "data".into(), description: String::new() })
+                .await
+                .unwrap_err()
+        ),
+        403
+    );
+    let t = admin
+        .create_team(&Team { name: "data".into(), description: "data team".into() })
+        .await
+        .unwrap();
+    assert!(t.members.is_empty());
+    assert!(
+        admin
+            .create_team(&Team { name: "data".into(), ..Default::default() })
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("already exists")
+    );
+    assert_eq!(
+        api_status(
+            &admin
+                .create_team(&Team { name: "bad name".into(), ..Default::default() })
+                .await
+                .unwrap_err()
+        ),
+        400
+    );
+    assert_eq!(bob.list_teams().await.unwrap().len(), 1);
+
+    // membership: bob is maintainer, carol member; bob (maintainer) can add, carol cannot
+    admin
+        .add_team_member(
+            "data",
+            &AddTeamMemberRequest { username: "bob".into(), role: Some("maintainer".into()) },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        api_status(
+            &carol
+                .add_team_member(
+                    "data",
+                    &AddTeamMemberRequest { username: "carol".into(), role: None }
+                )
+                .await
+                .unwrap_err()
+        ),
+        403
+    );
+    let d = bob
+        .add_team_member("data", &AddTeamMemberRequest { username: "carol".into(), role: None })
+        .await
+        .unwrap();
+    assert_eq!(d.members.len(), 2);
+    assert_eq!(
+        api_status(
+            &bob.add_team_member(
+                "data",
+                &AddTeamMemberRequest { username: "carol".into(), role: Some("boss".into()) }
+            )
+            .await
+            .unwrap_err()
+        ),
+        400
+    );
+    assert_eq!(
+        api_status(
+            &bob.add_team_member(
+                "data",
+                &AddTeamMemberRequest { username: "ghost".into(), role: None }
+            )
+            .await
+            .unwrap_err()
+        ),
+        404
+    );
+    let me = carol.whoami().await.unwrap();
+    assert_eq!(me.teams.len(), 1);
+    assert_eq!(me.teams[0].role, "member");
+
+    // team grant reaches every member
+    admin.grant(&grant("team", "data", "server", "beta")).await.unwrap();
+    assert_eq!(names(carol.list_servers().await.unwrap(), |s| s.name.to_string()), ["beta"]);
+    assert_eq!(names(bob.list_servers().await.unwrap(), |s| s.name.to_string()), ["beta"]);
+
+    // owned clients: carol's client inherits her access (beta only), even with an empty allow list;
+    // allow_list narrows but never widens; carol cannot own a client as the team (not maintainer)
+    let c = carol
+        .create_client(&CreateMcpClientRequest { name: "carol-ide".into(), ..Default::default() })
+        .await
+        .unwrap();
+    assert_eq!(
+        c.owner.as_ref().map(|o| (o.kind.as_str(), o.name.as_str())),
+        Some(("user", "carol"))
+    );
+    let tok = c.access_token.clone().unwrap();
+    assert_eq!(
+        mcp_list_tools(&base, &tok).await.unwrap(),
+        ["beta__echo", "beta__echo_headers", "beta__fail"]
+    );
+    let wide = carol
+        .create_client(&CreateMcpClientRequest {
+            name: "carol-wide".into(),
+            allow_list: vec!["*".into(), "alpha".into()],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        mcp_list_tools(&base, &wide.access_token.unwrap()).await.unwrap().len(),
+        3,
+        "allow_list cannot widen beyond the owner"
+    );
+    assert_eq!(
+        api_status(
+            &carol
+                .create_client(&CreateMcpClientRequest {
+                    name: "team-bot".into(),
+                    owner: Some(Owner { kind: "team".into(), name: "data".into() }),
+                    ..Default::default()
+                })
+                .await
+                .unwrap_err()
+        ),
+        403
+    );
+    // bob (maintainer) can create a team-owned client
+    let tb = bob
+        .create_client(&CreateMcpClientRequest {
+            name: "team-bot".into(),
+            owner: Some(Owner { kind: "team".into(), name: "data".into() }),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(tb.owner.as_ref().map(|o| o.kind.as_str()), Some("team"));
+    assert_eq!(mcp_list_tools(&base, &tb.access_token.clone().unwrap()).await.unwrap().len(), 3);
+
+    // listing: carol sees her own + the team's; bob sees the same set; admin sees all
+    let mine = names(carol.list_clients().await.unwrap(), |c| c.name.clone());
+    assert_eq!(mine, ["carol-ide", "carol-wide", "team-bot"]);
+    assert_eq!(admin.list_clients().await.unwrap().len(), 3);
+    // carol cannot touch a client she does not own; a maintainer can manage the team's
+    let dave = user_client(&admin, &anon, "dave").await;
+    assert_eq!(api_status(&dave.delete_client("carol-ide").await.unwrap_err()), 403);
+    assert_eq!(
+        api_status(
+            &carol
+                .update_client(
+                    "team-bot",
+                    &UpdateMcpClientRequest { rotate_token: true, ..Default::default() }
+                )
+                .await
+                .unwrap_err()
+        ),
+        403
+    );
+    bob.update_client(
+        "team-bot",
+        &UpdateMcpClientRequest { rotate_token: true, ..Default::default() },
+    )
+    .await
+    .unwrap();
+    carol.delete_client("carol-wide").await.unwrap();
+
+    // a client's access follows live changes: revoking the team grant empties carol's client
+    admin.revoke(&grant("team", "data", "server", "beta")).await.unwrap();
+    assert!(mcp_list_tools(&base, &tok).await.unwrap().is_empty());
+    // removing carol from the team: she keeps nothing; deleting the team drops the team-owned client's owner
+    bob.remove_team_member("data", "carol").await.unwrap();
+    assert!(carol.whoami().await.unwrap().teams.is_empty());
+    admin.delete_team("data").await.unwrap();
+    admin.delete_team("data").await.unwrap();
+    let orphan =
+        admin.list_clients().await.unwrap().into_iter().find(|c| c.name == "team-bot").unwrap();
+    assert!(orphan.owner.is_none(), "ownerless after the team is deleted → allow_list semantics");
+
+    // ownerless admin-created clients keep the legacy allow-list behaviour
+    let legacy = admin
+        .create_client(&CreateMcpClientRequest {
+            name: "legacy".into(),
+            allow_list: vec!["alpha".into()],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(legacy.owner.is_none());
+    assert_eq!(mcp_list_tools(&base, &legacy.access_token.unwrap()).await.unwrap().len(), 3);
 }

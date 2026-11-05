@@ -2,6 +2,7 @@
 //!
 //! Reads for the catalog and the identity/config ports; registry writes in `registry`.
 
+pub mod access;
 pub mod catalog;
 pub mod config;
 pub mod groups;

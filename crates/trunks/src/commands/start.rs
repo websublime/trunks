@@ -78,7 +78,7 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         tracing::info!(versions = ?applied.versions, "applied migrations");
     }
     let store = Arc::new(Store(db.clone()));
-    let identity = IdentityService::new(store.clone());
+    let identity = IdentityService::new(store.clone(), store.clone());
     let mode = ModeService::load(store.clone(), identity.clone())
         .await
         .whatever_context("reading server configuration")?;

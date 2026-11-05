@@ -330,13 +330,14 @@ pub struct UserRecord {
     pub role: trunks_types::Role,
 }
 
-/// A machine identity for MCP clients.
+/// A machine identity for MCP clients. `owner` (D14) narrows the client to its owner's grants.
 #[derive(Debug, Clone)]
 pub struct McpClientRecord {
     pub id: i64,
     pub name: String,
     pub description: String,
     pub allow_list: Vec<String>,
+    pub owner: Option<(crate::access::SubjectKind, i64)>,
 }
 
 impl UserRecord {
@@ -353,12 +354,7 @@ impl McpClientRecord {
             name: self.name.clone(),
             description: self.description.clone(),
             allow_list: self.allow_list.clone(),
+            owner: None,
         }
-    }
-
-    /// `"*"` grants every server; otherwise exact name match. Malformed lists grant nothing.
-    #[must_use]
-    pub fn may_access(&self, server: &ServerName) -> bool {
-        self.allow_list.iter().any(|a| a == "*" || a == server.as_str())
     }
 }

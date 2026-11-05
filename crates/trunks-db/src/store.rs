@@ -2,22 +2,24 @@
 
 use async_trait::async_trait;
 use secrecy::{ExposeSecret as _, SecretString};
+use trunks_core::access::{Grant, SubjectKind, TargetKind, TeamRole};
 use trunks_core::domain::{
     McpClientRecord, PromptRecord, ResourceRecord, ServerRecord, ToolGroupRecord, ToolRecord,
     UpstreamConfig, UserRecord,
 };
 use trunks_core::ports::{
-    ConfigStore, Discovered, IdentityStore, NewServer, OAuthCredentials, OAuthStore,
-    PendingAuthorization, RegistrySnapshot, RegistryStore, ServerConfig, ToolGroupSpec,
+    AccessStore, ConfigStore, Discovered, GrantRecord, IdentityStore, NewServer, OAuthCredentials,
+    OAuthStore, PendingAuthorization, RegistrySnapshot, RegistryStore, ServerConfig,
+    TeamMemberRecord, TeamRecord, ToolGroupSpec,
 };
 use trunks_types::{GroupName, ResourceUri, Role, ServerMode, ServerName, SessionMode, Transport};
 
 use crate::repos::oauth::{self, OAuthPendingWrite, OAuthTokenWrite};
 use crate::repos::registry::{NewPromptRow, NewResourceRow, NewServerRow, NewToolRow};
-use crate::repos::{catalog, config, groups, identity, registry};
+use crate::repos::{access, catalog, config, groups, identity, registry};
 use crate::rows::{
-    McpClientRow, OAuthPendingRow, OAuthTokenRow, PromptRow, ResourceRow, ServerRow, ToolGroupRow,
-    ToolRow, UserRow,
+    BareGrantRow, GrantRow, McpClientRow, OAuthPendingRow, OAuthTokenRow, PromptRow, ResourceRow,
+    ServerRow, TeamMemberRow, TeamRow, ToolGroupRow, ToolRow, UserRow,
 };
 use crate::{Db, Result};
 
@@ -140,13 +142,35 @@ impl TryFrom<UserRow> for UserRecord {
 
 impl From<McpClientRow> for McpClientRecord {
     fn from(r: McpClientRow) -> Self {
+        let owner = match (r.owner_kind.as_deref().and_then(SubjectKind::parse), r.owner_id) {
+            (Some(k), Some(id)) => Some((k, id)),
+            _ => None,
+        };
         Self {
             id: r.id,
             name: r.name,
             description: r.description.unwrap_or_default(),
             allow_list: string_list(Some(&r.allow_list.0)),
+            owner,
         }
     }
+}
+
+impl From<TeamRow> for TeamRecord {
+    fn from(r: TeamRow) -> Self {
+        Self { id: r.id, name: r.name, description: r.description.unwrap_or_default() }
+    }
+}
+
+fn team_role(s: &str) -> TeamRole {
+    TeamRole::parse(s).unwrap_or_default()
+}
+
+fn grant_from(r: &BareGrantRow) -> Option<Grant> {
+    Some(Grant {
+        target_kind: TargetKind::parse(&r.target_kind)?,
+        target_name: r.target_name.clone(),
+    })
 }
 
 #[async_trait]
@@ -353,10 +377,34 @@ impl IdentityStore for Store {
         description: &str,
         token: &str,
         allow_list: &[String],
+        owner: Option<(SubjectKind, i64)>,
     ) -> trunks_core::Result<McpClientRecord> {
-        Ok(identity::create_client(&self.0, name, description, token, allow_list)
+        let owner = owner.map(|(k, id)| (k.as_str(), id));
+        Ok(identity::create_client(&self.0, name, description, token, allow_list, owner)
             .await
             .map(McpClientRecord::from)?)
+    }
+
+    async fn clients_owned_by(
+        &self,
+        subjects: &[(SubjectKind, i64)],
+    ) -> trunks_core::Result<Vec<McpClientRecord>> {
+        let mut out = Vec::new();
+        for (k, id) in subjects {
+            out.extend(
+                identity::clients_owned_by(&self.0, k.as_str(), *id)
+                    .await?
+                    .into_iter()
+                    .map(McpClientRecord::from),
+            );
+        }
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out.dedup_by(|a, b| a.id == b.id);
+        Ok(out)
+    }
+
+    async fn user_by_id(&self, id: i64) -> trunks_core::Result<Option<UserRecord>> {
+        identity::user_by_id(&self.0, id).await?.map(UserRecord::try_from).transpose()
     }
 
     async fn update_client(
@@ -519,5 +567,140 @@ impl OAuthStore for Store {
 
     async fn purge_expired_pending(&self) -> trunks_core::Result<u64> {
         Ok(oauth::purge_expired_pending(&self.0).await?)
+    }
+}
+
+#[async_trait]
+impl AccessStore for Store {
+    async fn teams(&self) -> trunks_core::Result<Vec<TeamRecord>> {
+        Ok(access::teams(&self.0).await?.into_iter().map(TeamRecord::from).collect())
+    }
+
+    async fn team_by_name(&self, name: &str) -> trunks_core::Result<Option<TeamRecord>> {
+        Ok(access::team_by_name(&self.0, name).await?.map(TeamRecord::from))
+    }
+
+    async fn team_by_id(&self, id: i64) -> trunks_core::Result<Option<TeamRecord>> {
+        Ok(access::team_by_id(&self.0, id).await?.map(TeamRecord::from))
+    }
+
+    async fn create_team(&self, name: &str, description: &str) -> trunks_core::Result<TeamRecord> {
+        Ok(access::create_team(&self.0, name, description).await.map(TeamRecord::from)?)
+    }
+
+    async fn update_team(&self, name: &str, description: &str) -> trunks_core::Result<bool> {
+        Ok(access::update_team(&self.0, name, description).await?)
+    }
+
+    async fn delete_team(&self, name: &str) -> trunks_core::Result<bool> {
+        Ok(access::delete_team(&self.0, name).await?)
+    }
+
+    async fn members(&self, team_id: i64) -> trunks_core::Result<Vec<TeamMemberRecord>> {
+        Ok(access::members(&self.0, team_id)
+            .await?
+            .into_iter()
+            .map(|r: TeamMemberRow| TeamMemberRecord {
+                team_id: r.team_id,
+                user_id: r.user_id,
+                username: r.username,
+                role: team_role(&r.role),
+            })
+            .collect())
+    }
+
+    async fn teams_of_user(
+        &self,
+        user_id: i64,
+    ) -> trunks_core::Result<Vec<(TeamRecord, TeamRole)>> {
+        Ok(access::teams_of_user(&self.0, user_id)
+            .await?
+            .into_iter()
+            .map(|r| {
+                (
+                    TeamRecord {
+                        id: r.id,
+                        name: r.name,
+                        description: r.description.unwrap_or_default(),
+                    },
+                    team_role(&r.role),
+                )
+            })
+            .collect())
+    }
+
+    async fn add_member(
+        &self,
+        team_id: i64,
+        user_id: i64,
+        role: TeamRole,
+    ) -> trunks_core::Result<()> {
+        Ok(access::add_member(&self.0, team_id, user_id, role.as_str()).await?)
+    }
+
+    async fn remove_member(&self, team_id: i64, user_id: i64) -> trunks_core::Result<bool> {
+        Ok(access::remove_member(&self.0, team_id, user_id).await?)
+    }
+
+    async fn effective_grants_for_user(&self, user_id: i64) -> trunks_core::Result<Vec<Grant>> {
+        Ok(access::grants_for_user(&self.0, user_id).await?.iter().filter_map(grant_from).collect())
+    }
+
+    async fn grants_for_subject(
+        &self,
+        kind: SubjectKind,
+        id: i64,
+    ) -> trunks_core::Result<Vec<Grant>> {
+        Ok(access::grants_for_subject(&self.0, kind.as_str(), id)
+            .await?
+            .iter()
+            .filter_map(grant_from)
+            .collect())
+    }
+
+    async fn grants(
+        &self,
+        target: Option<(TargetKind, &str)>,
+    ) -> trunks_core::Result<Vec<GrantRecord>> {
+        let target = target.map(|(k, n)| (k.as_str(), n));
+        Ok(access::grants(&self.0, target)
+            .await?
+            .into_iter()
+            .filter_map(|r: GrantRow| {
+                Some(GrantRecord {
+                    subject_kind: SubjectKind::parse(&r.subject_kind)?,
+                    subject_id: r.subject_id,
+                    subject_name: r.subject_name,
+                    target_kind: TargetKind::parse(&r.target_kind)?,
+                    target_name: r.target_name,
+                })
+            })
+            .collect())
+    }
+
+    async fn add_grant(
+        &self,
+        subject: (SubjectKind, i64),
+        target: (TargetKind, &str),
+    ) -> trunks_core::Result<bool> {
+        Ok(access::add_grant(
+            &self.0,
+            (subject.0.as_str(), subject.1),
+            (target.0.as_str(), target.1),
+        )
+        .await?)
+    }
+
+    async fn remove_grant(
+        &self,
+        subject: (SubjectKind, i64),
+        target: (TargetKind, &str),
+    ) -> trunks_core::Result<bool> {
+        Ok(access::remove_grant(
+            &self.0,
+            (subject.0.as_str(), subject.1),
+            (target.0.as_str(), target.1),
+        )
+        .await?)
     }
 }

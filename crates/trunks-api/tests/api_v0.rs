@@ -43,7 +43,7 @@ async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
     let db = Db::connect(&format!("sqlite://{}", path.display()), 2).await.unwrap();
     db.migrate().await.unwrap();
     let store = Arc::new(Store(db));
-    let identity = IdentityService::new(store.clone());
+    let identity = IdentityService::new(store.clone(), store.clone());
     let mode = ModeService::load(store.clone(), identity.clone()).await.unwrap();
     let catalog = Catalog::empty();
     catalog.reload(store.as_ref()).await.unwrap();
@@ -170,7 +170,9 @@ async fn init_enterprise_returns_admin_token_once() {
     assert_eq!(token.len(), 43);
     let (s, b) = call(&app.router, "GET", "/api/v0/users/whoami", Some(&token), None).await;
     assert_eq!(s, StatusCode::OK);
-    assert_eq!(b, serde_json::json!({"username": "admin", "role": "admin"}));
+    assert_eq!(b["username"], "admin");
+    assert_eq!(b["role"], "admin");
+    assert_eq!(b["access"]["all"], true, "admins see everything");
     let (s, b) =
         call(&app.router, "POST", "/init", None, Some(serde_json::json!({"mode": "production"})))
             .await;
@@ -257,14 +259,18 @@ async fn enterprise_fixture_enforces_user_tokens() {
     let (s, b) = call(&app.router, "GET", "/api/v0/tools", Some("wrong"), None).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
     assert!(b["error"].as_str().unwrap().starts_with("invalid access token"));
+    // D14: a migrated user has no grants yet, so sees nothing until an admin grants access
     let (s, b) =
         call(&app.router, "GET", "/api/v0/tools", Some("bob-token-0123456789"), None).await;
     assert_eq!(s, StatusCode::OK, "{b}");
-    assert_eq!(b.as_array().unwrap().len(), 6);
+    assert_eq!(b.as_array().unwrap().len(), 0, "no grants → no tools");
     let (s, b) =
         call(&app.router, "GET", "/api/v0/users/whoami", Some("bob-token-0123456789"), None).await;
     assert_eq!(s, StatusCode::OK);
-    assert_eq!(b, serde_json::json!({"username": "bob", "role": "user"}));
+    assert_eq!(b["username"], "bob");
+    assert_eq!(b["role"], "user");
+    assert_eq!(b["access"], serde_json::json!({"all": false, "servers": [], "tool_groups": []}));
+    assert_eq!(b["teams"], serde_json::json!([]));
     let (s, _) =
         call(&app.router, "GET", "/api/v0/servers", Some("cursor-token-0123456789"), None).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED, "MCP client tokens do not open the REST API");

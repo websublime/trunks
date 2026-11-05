@@ -31,7 +31,7 @@ async fn boot() -> (Client, Arc<Store>, tempfile::TempDir) {
     let db = Db::connect(&format!("sqlite://{}/db.sqlite", dir.path().display()), 4).await.unwrap();
     db.migrate().await.unwrap();
     let store = Arc::new(Store(db));
-    let identity = IdentityService::new(store.clone());
+    let identity = IdentityService::new(store.clone(), store.clone());
     let mode_svc = ModeService::load(store.clone(), identity.clone()).await.unwrap();
     mode_svc.init(ServerMode::Development).await.unwrap();
     let catalog = Catalog::empty();

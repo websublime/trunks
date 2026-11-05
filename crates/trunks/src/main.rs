@@ -55,6 +55,14 @@ enum Command {
     Export(commands::manage::ExportArgs),
     /// Finish an upstream OAuth authorization started with a custom redirect URI
     OauthComplete(commands::manage::OAuthCompleteArgs),
+    /// Add a user to a team (enterprise mode)
+    AddTeamMember(commands::access::MemberArgs),
+    /// Remove a user from a team (enterprise mode)
+    RemoveTeamMember(commands::access::RemoveMemberArgs),
+    /// Grant a user or team access to a server or tool group (enterprise mode)
+    Grant(commands::access::GrantArgs),
+    /// Revoke a grant (enterprise mode)
+    Revoke(commands::access::GrantArgs),
     /// List servers, tools, prompts or resources
     List(commands::list::Args),
     /// Show how to call a tool (input schema)
@@ -109,6 +117,10 @@ async fn run(cli: Cli) -> Result<(), Whatever> {
         Command::Get(args) => commands::manage::get(&client, &registry, args).await,
         Command::Export(args) => commands::manage::export(&client, args).await,
         Command::OauthComplete(args) => commands::manage::oauth_complete(&client, args).await,
+        Command::AddTeamMember(args) => commands::access::add_member(&client, args).await,
+        Command::RemoveTeamMember(args) => commands::access::remove_member(&client, args).await,
+        Command::Grant(args) => commands::access::grant(&client, args).await,
+        Command::Revoke(args) => commands::access::revoke(&client, args).await,
         Command::List(args) => commands::list::run(&client, args).await,
         Command::Usage(args) => commands::usage::run(&client, args).await,
         Command::Invoke(args) => commands::invoke::run(&client, args).await,

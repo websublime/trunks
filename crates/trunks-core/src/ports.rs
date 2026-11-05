@@ -8,6 +8,7 @@ use serde_json::Value;
 use trunks_types::{GroupName, ResourceUri, Role, ServerMode, ServerName, SessionMode, Transport};
 
 use crate::Result;
+use crate::access::{Grant, SubjectKind, TargetKind, TeamRole};
 use crate::domain::{
     McpClientRecord, PromptRecord, ResourceRecord, ServerRecord, ToolGroupRecord, ToolRecord,
     UpstreamConfig, UserRecord,
@@ -159,6 +160,7 @@ pub trait IdentityStore: Send + Sync + 'static {
 
     async fn users(&self) -> Result<Vec<UserRecord>>;
     async fn user_by_name(&self, username: &str) -> Result<Option<UserRecord>>;
+    async fn user_by_id(&self, id: i64) -> Result<Option<UserRecord>>;
     /// Returns `false` when there is no such user.
     async fn update_user_token(&self, username: &str, token: &str) -> Result<bool>;
     /// Returns `false` when there is no such user.
@@ -172,6 +174,7 @@ pub trait IdentityStore: Send + Sync + 'static {
         description: &str,
         token: &str,
         allow_list: &[String],
+        owner: Option<(SubjectKind, i64)>,
     ) -> Result<McpClientRecord>;
     /// Updates only the given fields. Returns `false` when there is no such client.
     async fn update_client(
@@ -181,6 +184,11 @@ pub trait IdentityStore: Send + Sync + 'static {
         allow_list: Option<&[String]>,
         token: Option<&str>,
     ) -> Result<bool>;
+    /// Clients owned by any of the given subjects.
+    async fn clients_owned_by(
+        &self,
+        subjects: &[(SubjectKind, i64)],
+    ) -> Result<Vec<McpClientRecord>>;
     /// Returns `false` when there is no such client.
     async fn delete_client(&self, name: &str) -> Result<bool>;
 }
@@ -248,4 +256,66 @@ pub trait OAuthStore: Send + Sync + 'static {
     async fn save_pending(&self, pending: &PendingAuthorization) -> Result<()>;
     async fn delete_pending(&self, session_id: &str) -> Result<()>;
     async fn purge_expired_pending(&self) -> Result<u64>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamRecord {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamMemberRecord {
+    pub team_id: i64,
+    pub user_id: i64,
+    pub username: String,
+    pub role: TeamRole,
+}
+
+/// A grant joined to its subject's name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantRecord {
+    pub subject_kind: SubjectKind,
+    pub subject_id: i64,
+    pub subject_name: String,
+    pub target_kind: TargetKind,
+    pub target_name: String,
+}
+
+/// Teams, memberships and grants (D14).
+#[async_trait]
+pub trait AccessStore: Send + Sync + 'static {
+    async fn teams(&self) -> Result<Vec<TeamRecord>>;
+    async fn team_by_name(&self, name: &str) -> Result<Option<TeamRecord>>;
+    async fn team_by_id(&self, id: i64) -> Result<Option<TeamRecord>>;
+    async fn create_team(&self, name: &str, description: &str) -> Result<TeamRecord>;
+    async fn update_team(&self, name: &str, description: &str) -> Result<bool>;
+    /// Deletes the team, its memberships and its grants. Returns `false` when absent.
+    async fn delete_team(&self, name: &str) -> Result<bool>;
+
+    async fn members(&self, team_id: i64) -> Result<Vec<TeamMemberRecord>>;
+    /// Teams of a user with the user's role in each.
+    async fn teams_of_user(&self, user_id: i64) -> Result<Vec<(TeamRecord, TeamRole)>>;
+    /// Inserts or updates the membership.
+    async fn add_member(&self, team_id: i64, user_id: i64, role: TeamRole) -> Result<()>;
+    async fn remove_member(&self, team_id: i64, user_id: i64) -> Result<bool>;
+
+    /// Grants whose subject is the user **or any of the user's teams**.
+    async fn effective_grants_for_user(&self, user_id: i64) -> Result<Vec<Grant>>;
+    async fn grants_for_subject(&self, kind: SubjectKind, id: i64) -> Result<Vec<Grant>>;
+    /// Every grant (optionally only those on one target), joined to subject names.
+    async fn grants(&self, target: Option<(TargetKind, &str)>) -> Result<Vec<GrantRecord>>;
+    /// Idempotent. Returns `true` when a new row was inserted.
+    async fn add_grant(
+        &self,
+        subject: (SubjectKind, i64),
+        target: (TargetKind, &str),
+    ) -> Result<bool>;
+    /// Idempotent. Returns `true` when a row was removed.
+    async fn remove_grant(
+        &self,
+        subject: (SubjectKind, i64),
+        target: (TargetKind, &str),
+    ) -> Result<bool>;
 }
