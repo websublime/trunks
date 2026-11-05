@@ -6,6 +6,8 @@
 //! upstream saw — proves nothing downstream leaks through the gateway), `fail` (returns an
 //! MCP tool error). Prompt: `greet(name)`. Resource: `mem://hello`.
 
+pub mod oauth;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

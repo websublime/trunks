@@ -1,20 +1,23 @@
 //! `Store`: the `trunks-core` ports implemented over `Db`.
 
 use async_trait::async_trait;
+use secrecy::{ExposeSecret as _, SecretString};
 use trunks_core::domain::{
     McpClientRecord, PromptRecord, ResourceRecord, ServerRecord, ToolGroupRecord, ToolRecord,
     UpstreamConfig, UserRecord,
 };
 use trunks_core::ports::{
-    ConfigStore, Discovered, IdentityStore, NewServer, RegistrySnapshot, RegistryStore,
-    ServerConfig, ToolGroupSpec,
+    ConfigStore, Discovered, IdentityStore, NewServer, OAuthCredentials, OAuthStore,
+    PendingAuthorization, RegistrySnapshot, RegistryStore, ServerConfig, ToolGroupSpec,
 };
 use trunks_types::{GroupName, ResourceUri, Role, ServerMode, ServerName, SessionMode, Transport};
 
+use crate::repos::oauth::{self, OAuthPendingWrite, OAuthTokenWrite};
 use crate::repos::registry::{NewPromptRow, NewResourceRow, NewServerRow, NewToolRow};
 use crate::repos::{catalog, config, groups, identity, registry};
 use crate::rows::{
-    McpClientRow, PromptRow, ResourceRow, ServerRow, ToolGroupRow, ToolRow, UserRow,
+    McpClientRow, OAuthPendingRow, OAuthTokenRow, PromptRow, ResourceRow, ServerRow, ToolGroupRow,
+    ToolRow, UserRow,
 };
 use crate::{Db, Result};
 
@@ -375,4 +378,128 @@ impl IdentityStore for Store {
 #[allow(dead_code)]
 fn lift<T>(r: Result<T>) -> trunks_core::Result<T> {
     r.map_err(Into::into)
+}
+
+fn secret(v: Option<String>) -> Option<SecretString> {
+    v.filter(|s| !s.is_empty()).map(SecretString::from)
+}
+
+fn expose(v: Option<&SecretString>) -> Option<String> {
+    v.map(|s| s.expose_secret().to_owned())
+}
+
+impl From<OAuthTokenRow> for OAuthCredentials {
+    fn from(r: OAuthTokenRow) -> Self {
+        Self {
+            client_id: r.client_id.filter(|s| !s.is_empty()),
+            client_secret: secret(r.client_secret),
+            redirect_uri: r.redirect_uri,
+            scopes: string_list(r.scopes.as_ref().map(|j| &j.0)),
+            access_token: secret(r.access_token),
+            token_type: r.token_type,
+            refresh_token: secret(r.refresh_token),
+            scope: r.scope.filter(|s| !s.is_empty()),
+            expires_at: r.expires_at,
+            issuer: r.issuer,
+        }
+    }
+}
+
+impl TryFrom<OAuthPendingRow> for PendingAuthorization {
+    type Error = trunks_core::Error;
+    fn try_from(r: OAuthPendingRow) -> trunks_core::Result<Self> {
+        let transport: Transport = serde_json::from_value(serde_json::Value::String(
+            r.transport.clone(),
+        ))
+        .map_err(|_| internal(format!("unknown transport '{}' in pending session", r.transport)))?;
+        Ok(Self {
+            session_id: r.session_id,
+            server_name: ServerName::parse(r.server_name)?,
+            transport,
+            server_input: r.server_input.0,
+            force: r.force,
+            redirect_uri: r.redirect_uri.unwrap_or_default(),
+            client_id: r.client_id.filter(|s| !s.is_empty()),
+            client_secret: secret(r.client_secret),
+            scopes: string_list(r.scopes.as_ref().map(|j| &j.0)),
+            state: r.state,
+            code_verifier: SecretString::from(r.code_verifier),
+            expires_at: r.expires_at,
+            initiated_by: r.initiated_by,
+        })
+    }
+}
+
+#[async_trait]
+impl OAuthStore for Store {
+    async fn credentials(
+        &self,
+        server: &ServerName,
+    ) -> trunks_core::Result<Option<OAuthCredentials>> {
+        Ok(oauth::token_by_server(&self.0, server.as_str()).await?.map(OAuthCredentials::from))
+    }
+
+    async fn save_credentials(
+        &self,
+        server: &ServerName,
+        c: &OAuthCredentials,
+    ) -> trunks_core::Result<()> {
+        let w = OAuthTokenWrite {
+            client_id: c.client_id.clone(),
+            client_secret: expose(c.client_secret.as_ref()),
+            redirect_uri: c.redirect_uri.clone(),
+            scopes: c.scopes.clone(),
+            access_token: expose(c.access_token.as_ref()),
+            token_type: c.token_type.clone(),
+            refresh_token: expose(c.refresh_token.as_ref()),
+            scope: c.scope.clone(),
+            expires_at: c.expires_at,
+            issuer: c.issuer.clone(),
+        };
+        Ok(oauth::upsert_token(&self.0, server.as_str(), Transport::StreamableHttp.as_str(), &w)
+            .await?)
+    }
+
+    async fn clear_tokens(&self, server: &ServerName) -> trunks_core::Result<()> {
+        Ok(oauth::clear_token_fields(&self.0, server.as_str()).await?)
+    }
+
+    async fn delete_oauth(&self, server: &ServerName) -> trunks_core::Result<()> {
+        oauth::delete_token(&self.0, server.as_str()).await?;
+        Ok(oauth::delete_pending_by_server(&self.0, server.as_str()).await?)
+    }
+
+    async fn pending(&self, session_id: &str) -> trunks_core::Result<Option<PendingAuthorization>> {
+        oauth::pending_by_session(&self.0, session_id)
+            .await?
+            .map(PendingAuthorization::try_from)
+            .transpose()
+    }
+
+    async fn save_pending(&self, p: &PendingAuthorization) -> trunks_core::Result<()> {
+        let w = OAuthPendingWrite {
+            session_id: p.session_id.clone(),
+            server_name: p.server_name.to_string(),
+            transport: p.transport.as_str().to_owned(),
+            server_input: p.server_input.clone(),
+            force: p.force,
+            redirect_uri: Some(p.redirect_uri.clone()),
+            client_id: p.client_id.clone(),
+            client_secret: expose(p.client_secret.as_ref()),
+            scopes: p.scopes.clone(),
+            state: p.state.clone(),
+            code_verifier: p.code_verifier.expose_secret().to_owned(),
+            expires_at: p.expires_at,
+            initiated_by: p.initiated_by.clone(),
+        };
+        Ok(oauth::replace_pending(&self.0, &w).await?)
+    }
+
+    async fn delete_pending(&self, session_id: &str) -> trunks_core::Result<()> {
+        Ok(oauth::delete_pending_by_session(&self.0, session_id).await?)
+    }
+
+    async fn purge_expired_pending(&self) -> trunks_core::Result<u64> {
+        Ok(oauth::purge_expired_pending(&self.0).await?)
+    }
 }

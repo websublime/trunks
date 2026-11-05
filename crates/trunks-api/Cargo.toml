@@ -36,6 +36,9 @@ secrecy = { workspace = true }
 reqwest = { workspace = true }
 sqlx = { workspace = true }
 pretty_assertions = { workspace = true }
+wiremock = { workspace = true }
+chrono = { workspace = true }
+url = { workspace = true }
 
 [lints]
 workspace = true

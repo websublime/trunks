@@ -72,6 +72,7 @@ async fn boot(mode: ServerMode) -> (String, Option<String>, tempfile::TempDir) {
         mcp: McpMounts::new(gateway.clone(), McpOptions::default()),
         registry_service: RegistryService::new(
             store.clone(),
+            store.clone(),
             gateway.catalog.clone(),
             gateway.sessions.clone(),
             ConnectOptions::default(),

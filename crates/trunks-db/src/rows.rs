@@ -101,6 +101,7 @@ pub struct OAuthTokenRow {
     pub refresh_token: Option<String>,
     pub scope: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
+    pub issuer: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]

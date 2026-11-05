@@ -55,6 +55,18 @@ pub struct Args {
     /// Replace an existing server of the same name
     #[arg(long)]
     force: bool,
+    /// OAuth: redirect URI of a pre-registered client (default: a loopback listener started
+    /// by the CLI). With a custom URI the flow must be completed with `trunks oauth-complete`.
+    #[arg(long)]
+    oauth_redirect_uri: Option<String>,
+    /// OAuth: client id of a pre-registered client (skips dynamic registration)
+    #[arg(long)]
+    oauth_client_id: Option<String>,
+    #[arg(long)]
+    oauth_client_secret: Option<String>,
+    /// OAuth: scope to request (repeatable)
+    #[arg(long = "oauth-scope", value_name = "SCOPE")]
+    oauth_scopes: Vec<String>,
 }
 
 /// Splits on the first `=` or `:`, whichever comes first (so `X-Key: a=b` keeps its value).
@@ -137,22 +149,77 @@ fn build_input(args: &Args) -> Result<RegisterServerInput, Whatever> {
             SessionModeArg::Stateful => SessionMode::Stateful,
         };
     }
+    if args.oauth_redirect_uri.is_some() {
+        input.oauth_redirect_uri.clone_from(&args.oauth_redirect_uri);
+    }
+    if args.oauth_client_id.is_some() {
+        input.oauth_client_id.clone_from(&args.oauth_client_id);
+    }
+    if args.oauth_client_secret.is_some() {
+        input.oauth_client_secret.clone_from(&args.oauth_client_secret);
+    }
+    if !args.oauth_scopes.is_empty() {
+        input.oauth_scopes.clone_from(&args.oauth_scopes);
+    }
     if input.name.trim().is_empty() {
         snafu::whatever!("a server name is required (--name or \"name\" in the file)");
     }
     Ok(input)
 }
 
+/// Registers, running the OAuth round-trip when the upstream asks for it.
+async fn register_with_oauth(
+    client: &Client,
+    mut input: RegisterServerInput,
+    force: bool,
+) -> Result<trunks_types::api::McpServer, Whatever> {
+    let custom_redirect = input.oauth_redirect_uri.is_some();
+    let first = client.register_server(&input, force).await;
+    let auth = match first {
+        Ok(r) if r.server.is_some() => return Ok(r.server.unwrap_or_else(|| unreachable!())),
+        Ok(r) => r.authorization_required,
+        // 400 upstream_oauth_required: the upstream wants OAuth and no redirect was given
+        Err(e) if e.code() == Some(trunks_types::error::CODE_UPSTREAM_OAUTH_REQUIRED) => None,
+        Err(e) => return Err(e).whatever_context("registering server"),
+    };
+    if custom_redirect {
+        let Some(auth) = auth else {
+            snafu::whatever!("the upstream requires OAuth; the custom redirect URI was rejected");
+        };
+        println!(
+            "The upstream requires OAuth authorization. Open this URL in a browser:\n\n  {}\n",
+            auth.authorization_url
+        );
+        println!("Then complete the registration with:");
+        println!("  trunks oauth-complete {} --code <code> --state <state>", auth.session_id);
+        println!("(the session expires at {})", auth.expires_at.format("%Y-%m-%d %H:%M:%S UTC"));
+        snafu::whatever!("registration pending OAuth authorization");
+    }
+    let mut listener = super::oauth_flow::Listener::start().await?;
+    input.oauth_redirect_uri = Some(listener.redirect_uri.clone());
+    let auth = match auth {
+        Some(a) if a.session_id.is_empty() => None,
+        Some(_) | None => {
+            let r = client
+                .register_server(&input, force)
+                .await
+                .whatever_context("registering server")?;
+            if let Some(s) = r.server {
+                return Ok(s);
+            }
+            r.authorization_required
+        }
+    };
+    let Some(auth) = auth else {
+        snafu::whatever!("the server did not start an OAuth authorization");
+    };
+    super::oauth_flow::finish(client, &mut listener, &auth).await
+}
+
 pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
     let input = build_input(&args)?;
     let name = input.name.clone();
-    let result =
-        client.register_server(&input, args.force).await.whatever_context("registering server")?;
-    let Some(server) = result.server else {
-        snafu::whatever!(
-            "the server requires an upstream OAuth flow, which this version does not support"
-        );
-    };
+    let server = register_with_oauth(client, input, args.force).await?;
     println!("Server {} registered successfully!", server.name);
 
     let tools = client.list_tools(Some(&name)).await.whatever_context("listing tools")?;

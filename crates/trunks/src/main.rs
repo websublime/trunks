@@ -53,6 +53,8 @@ enum Command {
     Get(commands::manage::GetArgs),
     /// Export server definitions as JSON files (includes credentials)
     Export(commands::manage::ExportArgs),
+    /// Finish an upstream OAuth authorization started with a custom redirect URI
+    OauthComplete(commands::manage::OAuthCompleteArgs),
     /// List servers, tools, prompts or resources
     List(commands::list::Args),
     /// Show how to call a tool (input schema)
@@ -106,6 +108,7 @@ async fn run(cli: Cli) -> Result<(), Whatever> {
         Command::Disable(args) => commands::manage::toggle(&client, args, false).await,
         Command::Get(args) => commands::manage::get(&client, &registry, args).await,
         Command::Export(args) => commands::manage::export(&client, args).await,
+        Command::OauthComplete(args) => commands::manage::oauth_complete(&client, args).await,
         Command::List(args) => commands::list::run(&client, args).await,
         Command::Usage(args) => commands::usage::run(&client, args).await,
         Command::Invoke(args) => commands::invoke::run(&client, args).await,

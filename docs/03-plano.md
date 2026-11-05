@@ -84,12 +84,14 @@ Entregue: port `IdentityStore` completo e `trunks-db::repos::identity` (CRUD; vi
 
 Entregue: `trunks-core::groups` (`validate` contra o catálogo, `diff`, `GroupService` CRUD com update de substituição total e delete idempotente), port `RegistryStore::{create,update,delete}_group` + `trunks-db::repos::groups`, `trunks-api::routes::groups` (`/tool-groups*` atrás de `require_admin`; delete larga o service cacheado), SDK, CLI (`create|get|update|delete group`, `list groups`, `list tools --group`, `invoke --group`, `export` com `groups/`). O scope de grupo no gateway e a rota `/v0/groups/{g}/mcp` já existiam da Fase 2a. Testes: 2 e2e (CRUD + validação + degradação/recuperação + drop do cache; grupo nunca alarga a allow-list de um client e exige token de client), unit de `diff`. Smoke manual do CLI.
 
-### Fase 5 — OAuth upstream (1,5 sem.)
+### Fase 5 — OAuth upstream (1,5 sem.) — **Feita**
 
 - `trunks-core::oauth`: bootstrap (discovery, DCR condicional, PKCE, `state`, sessão pendente com TTL, transacção), `complete`, `CredentialStore` em DB com refresh; integração em `UpstreamConn::connect` (usa tokens guardados quando existem); limpeza no `deregister`.
 - API: `202 authorization_required`, `POST /upstream_oauth/sessions/{id}/complete`, `code: upstream_oauth_required`.
 - CLI `register`: listener loopback, abrir browser, esperar callback, `complete`; erro claro quando o redirect é fornecido pelo utilizador.
 - Testes: OAuth com `wiremock`, e2e de registo OAuth, `force=true` com OAuth.
+
+Entregue: `trunks-core::oauth` (`DbCredentialStore`/`CapturedStateStore` sobre `rmcp::transport::auth`, `bootstrap`, `exchange`, `auth_client`), port `OAuthStore` + `trunks-db::repos::oauth` (escritas transaccionais) + migração `0004_oauth_issuer`, erro tipado `UpstreamAuthRequired` detectado na cadeia de erros do `initialize`, `RegisterOutcome` e `complete_oauth` no `RegistryService`, limpeza no `deregister`, purga no arranque, rota `…/complete`, `202` no `POST /servers`, SDK `complete_oauth`, CLI (`register` com listener loopback e browser, `oauth-complete`, flags `--oauth-*`), fakes de AS/upstream em `trunks-testing::oauth`. Testes: 2 e2e na API (DCR + restart-safe via DB, erros de sessão/state/code, bearer nas chamadas do gateway, export sem tokens, deregister limpa; cliente pré-registado sem DCR, refresh transparente persistido) e 1 e2e do binário (`register` → callback loopback → `invoke`). `force=true` com OAuth passa pelo `register` normal (coberto pelos testes de registry).
 
 ### Fase 6 — Dashboard API + web app v0 em `line://ui` (3 sem.)
 
@@ -176,4 +178,4 @@ Uma fase só fecha quando **todos** se verificam:
 3. ~~Fixtures legacy~~ feitas (sintéticas; regenerar com binário real quando possível).
 4. ~~Spike S1~~ feito — sem plano B.
 5. ~~Spike S3~~ feito. **Fase 0 concluída.**
-6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2). ~~Fase 3~~ feita. ~~Fase 4~~ feita — seguir para a Fase 5 (OAuth upstream).
+6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2). ~~Fase 3~~ feita. ~~Fase 4~~ feita. ~~Fase 5~~ feita — seguir para a Fase 6 (dashboard API + web app em `line://ui`).

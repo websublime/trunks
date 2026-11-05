@@ -209,3 +209,26 @@ pub async fn get(client: &Client, registry: &str, args: GetArgs) -> Result<(), W
     }
     Ok(())
 }
+
+#[derive(Debug, ClapArgs)]
+pub struct OAuthCompleteArgs {
+    /// Session id printed by `trunks register`
+    session_id: String,
+    #[arg(long)]
+    code: String,
+    #[arg(long)]
+    state: String,
+}
+
+/// Completes a pending OAuth authorization started with a custom redirect URI.
+pub async fn oauth_complete(client: &Client, args: OAuthCompleteArgs) -> Result<(), Whatever> {
+    let r = client
+        .complete_oauth(&args.session_id, &args.code, &args.state)
+        .await
+        .whatever_context("completing the OAuth authorization")?;
+    match r.server {
+        Some(s) => println!("Server {} registered successfully!", s.name),
+        None => snafu::whatever!("the server did not return the registered server"),
+    }
+    Ok(())
+}

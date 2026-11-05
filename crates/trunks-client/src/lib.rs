@@ -6,11 +6,11 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 use snafu::{ResultExt, Snafu};
 use trunks_types::api::{
-    CreateMcpClientRequest, CreateUserRequest, EnableDisableResult, InitRequest, InitResponse,
-    McpClient, McpClientWithToken, McpServer, Prompt, PromptRenderResult, RegisterServerInput,
-    RegisterServerResult, Resource, ResourceReadResult, ServerMetadata, Tool, ToolGroup,
-    ToolGroupWithEndpoints, ToolInvokeResult, UpdateMcpClientRequest, UpdateToolGroupResponse,
-    UpdateUserRequest, User, UserWithToken,
+    CompleteOAuthRequest, CreateMcpClientRequest, CreateUserRequest, EnableDisableResult,
+    InitRequest, InitResponse, McpClient, McpClientWithToken, McpServer, Prompt,
+    PromptRenderResult, RegisterServerInput, RegisterServerResult, Resource, ResourceReadResult,
+    ServerMetadata, Tool, ToolGroup, ToolGroupWithEndpoints, ToolInvokeResult,
+    UpdateMcpClientRequest, UpdateToolGroupResponse, UpdateUserRequest, User, UserWithToken,
 };
 use trunks_types::{ApiErrorResponse, ServerMode};
 
@@ -150,6 +150,21 @@ impl Client {
     ) -> Result<RegisterServerResult> {
         let q: &[(&str, &str)] = if force { &[("force", "true")] } else { &[] };
         self.post("api/v0/servers", q, input).await
+    }
+
+    /// `POST /api/v0/upstream_oauth/sessions/{id}/complete`
+    pub async fn complete_oauth(
+        &self,
+        session_id: &str,
+        code: &str,
+        state: &str,
+    ) -> Result<RegisterServerResult> {
+        self.post(
+            &format!("api/v0/upstream_oauth/sessions/{session_id}/complete"),
+            &[],
+            &CompleteOAuthRequest { code: code.to_owned(), state: state.to_owned() },
+        )
+        .await
     }
 
     /// `DELETE /api/v0/servers/{name}`

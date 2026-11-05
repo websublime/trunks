@@ -36,6 +36,12 @@ pub enum Error {
     #[snafu(display("upstream '{server}': {reason}"))]
     Upstream { server: String, reason: String },
 
+    /// The upstream answered 401 with a `WWW-Authenticate` challenge: the registry turns this
+    /// into the OAuth bootstrap (or a 400 `upstream_oauth_required` when it cannot). Maps to
+    /// 500 if it ever escapes.
+    #[snafu(display("upstream '{server}' requires authorization"))]
+    UpstreamAuthRequired { server: String, www_authenticate: String },
+
     /// Failure in the persistence layer. Maps to 500.
     #[snafu(display("store error: {source}"))]
     Store { source: Box<dyn std::error::Error + Send + Sync + 'static> },
