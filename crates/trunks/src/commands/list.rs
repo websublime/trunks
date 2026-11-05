@@ -18,9 +18,14 @@ enum What {
     /// Tools exposed by the gateway
     Tools {
         /// Only tools of this server
-        #[arg(long)]
+        #[arg(long, conflicts_with = "group")]
         server: Option<String>,
+        /// Only the effective tools of this tool group
+        #[arg(long)]
+        group: Option<String>,
     },
+    /// Tool groups
+    Groups,
     /// Prompts exposed by the gateway
     Prompts {
         #[arg(long)]
@@ -75,9 +80,14 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
             }
             println!("{t}");
         }
-        What::Tools { server } => {
-            let tools =
-                client.list_tools(server.as_deref()).await.whatever_context("listing tools")?;
+        What::Groups => return super::groups::list(client).await,
+        What::Tools { server, group } => {
+            let tools = match &group {
+                Some(g) => client.group_tools(g).await.whatever_context("listing group tools")?,
+                None => {
+                    client.list_tools(server.as_deref()).await.whatever_context("listing tools")?
+                }
+            };
             if tools.is_empty() {
                 println!("No tools found.");
                 return Ok(());
@@ -122,28 +132,33 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
             }
             println!("{t}");
         }
-        What::Users => {
-            let users = client.list_users().await.whatever_context("listing users")?;
-            let mut t = table(&["username", "role"]);
-            for u in users {
-                t.add_row([u.username, u.role.to_string()]);
-            }
-            println!("{t}");
-        }
-        What::McpClients => {
-            let clients = client.list_clients().await.whatever_context("listing MCP clients")?;
-            if clients.is_empty() {
-                println!("No MCP clients.");
-                return Ok(());
-            }
-            let mut t = table(&["name", "allowed servers", "description"]);
-            for c in clients {
-                let allow =
-                    if c.allow_list.is_empty() { "(none)".into() } else { c.allow_list.join(", ") };
-                t.add_row([c.name, allow, c.description]);
-            }
-            println!("{t}");
-        }
+        What::Users => list_users(client).await?,
+        What::McpClients => list_clients(client).await?,
     }
+    Ok(())
+}
+
+async fn list_users(client: &Client) -> Result<(), Whatever> {
+    let users = client.list_users().await.whatever_context("listing users")?;
+    let mut t = table(&["username", "role"]);
+    for u in users {
+        t.add_row([u.username, u.role.to_string()]);
+    }
+    println!("{t}");
+    Ok(())
+}
+
+async fn list_clients(client: &Client) -> Result<(), Whatever> {
+    let clients = client.list_clients().await.whatever_context("listing MCP clients")?;
+    if clients.is_empty() {
+        println!("No MCP clients.");
+        return Ok(());
+    }
+    let mut t = table(&["name", "allowed servers", "description"]);
+    for c in clients {
+        let allow = if c.allow_list.is_empty() { "(none)".into() } else { c.allow_list.join(", ") };
+        t.add_row([c.name, allow, c.description]);
+    }
+    println!("{t}");
     Ok(())
 }

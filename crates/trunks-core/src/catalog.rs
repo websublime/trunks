@@ -160,7 +160,7 @@ impl Snapshot {
 
 /// `included_tools ∪ ⋃ tools(included_servers) − excluded_tools`, restricted to enabled tools.
 /// Exclusion always wins.
-fn resolve_effective(
+pub(crate) fn resolve_effective(
     tools: &BTreeMap<CanonicalName, Arc<ToolEntry>>,
     included_tools: &[String],
     included_servers: &[String],

@@ -48,6 +48,9 @@ pub struct Args {
     /// JSON object with the tool's arguments
     #[arg(long, default_value = "{}")]
     input: String,
+    /// Only allow the call if the tool is an effective tool of this group
+    #[arg(long)]
+    group: Option<String>,
 }
 
 pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
@@ -56,6 +59,12 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
     let Some(arguments) = input.as_object().cloned() else {
         snafu::whatever!("--input must be a JSON object");
     };
+    if let Some(group) = &args.group {
+        let tools = client.group_tools(group).await.whatever_context("resolving tool group")?;
+        if !tools.iter().any(|t| t.name.to_string() == args.name) {
+            snafu::whatever!("tool '{}' is not an effective tool of group '{group}'", args.name);
+        }
+    }
     let result =
         client.invoke_tool(&args.name, arguments).await.whatever_context("invoking tool")?;
     if result.is_error == Some(true) {

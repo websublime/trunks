@@ -75,12 +75,14 @@ Entregue em 2b: `trunks-core::registry` (`RegistryService`: validar → connect 
 
 Entregue: port `IdentityStore` completo e `trunks-db::repos::identity` (CRUD; violação de unicidade mapeada para 400), `IdentityService` com users/clients (validação de nomes, allow-lists e tokens; rotação; admin indelével), `trunks-api::routes::identities` (`/users*`, `/clients*` atrás de `require_enterprise` + `require_admin`), SDK, CLI `create|update|delete user|mcp-client` (flags ou `-c` com `${VAR}`) e `list users|mcp-clients`. Auth, principals, allow-lists no gateway, `/init`, `whoami`, `init-server` e `login` já existiam das fases 1–2. Testes: 3 e2e (enterprise-only, users + semântica de tokens, clients + allow-lists a aplicar em `/mcp` sem restart, rejeição de tokens de user), unit de validação. Smoke manual do CLI em enterprise.
 
-### Fase 4 — Tool groups (1 sem.)
+### Fase 4 — Tool groups (1 sem.) — **Feita**
 
 - `trunks-core::groups`: resolução, validação, CRUD transaccional, diff, `GroupView` no catálogo, startup degradado.
 - `GatewayHandler{Scope::Group}`; rota `/v0/groups/{name}/mcp` com cache de services; endpoints na resposta (sem campos SSE).
 - `/api/v0/tool-groups*`; CLI `create|get|list|update|delete group`, `list tools --group`, `invoke --group`.
 - Testes: resolução e CRUD de grupos, API, e2e de grupos; verificar que grupo não alarga allow-list.
+
+Entregue: `trunks-core::groups` (`validate` contra o catálogo, `diff`, `GroupService` CRUD com update de substituição total e delete idempotente), port `RegistryStore::{create,update,delete}_group` + `trunks-db::repos::groups`, `trunks-api::routes::groups` (`/tool-groups*` atrás de `require_admin`; delete larga o service cacheado), SDK, CLI (`create|get|update|delete group`, `list groups`, `list tools --group`, `invoke --group`, `export` com `groups/`). O scope de grupo no gateway e a rota `/v0/groups/{g}/mcp` já existiam da Fase 2a. Testes: 2 e2e (CRUD + validação + degradação/recuperação + drop do cache; grupo nunca alarga a allow-list de um client e exige token de client), unit de `diff`. Smoke manual do CLI.
 
 ### Fase 5 — OAuth upstream (1,5 sem.)
 
@@ -174,4 +176,4 @@ Uma fase só fecha quando **todos** se verificam:
 3. ~~Fixtures legacy~~ feitas (sintéticas; regenerar com binário real quando possível).
 4. ~~Spike S1~~ feito — sem plano B.
 5. ~~Spike S3~~ feito. **Fase 0 concluída.**
-6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2). ~~Fase 3~~ feita — seguir para a Fase 4 (tool groups).
+6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2). ~~Fase 3~~ feita. ~~Fase 4~~ feita — seguir para a Fase 5 (OAuth upstream).

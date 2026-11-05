@@ -15,6 +15,7 @@ use trunks_api::AppState;
 use trunks_api::mcp::{McpMounts, McpOptions};
 use trunks_core::catalog::Catalog;
 use trunks_core::gateway::GatewayState;
+use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
@@ -131,6 +132,7 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
             sessions.clone(),
             connect,
         ),
+        groups: GroupService::new(store.clone(), catalog.clone()),
         registry: store.clone(),
         identity,
         mode,

@@ -22,7 +22,11 @@ pub fn router(state: AppState) -> Router {
     let api_v0 = Router::new()
         .merge(routes::registry::user_router())
         .merge(routes::invoke::router())
-        .merge(routes::admin::router().route_layer(from_fn(middleware::require_admin)))
+        .merge(
+            routes::admin::router()
+                .merge(routes::groups::router())
+                .route_layer(from_fn(middleware::require_admin)),
+        )
         .merge(
             routes::identities::router()
                 .route_layer(from_fn(middleware::require_admin))

@@ -99,6 +99,7 @@ pub async fn export(client: &Client, args: ExportArgs) -> Result<(), Whatever> {
         }
     }
     let servers = client.server_configs().await.whatever_context("exporting server configs")?;
+    let groups = client.list_groups().await.whatever_context("exporting tool groups")?;
     let dir = args.dir.join("servers");
     std::fs::create_dir_all(&dir).whatever_context(format!("creating {}", dir.display()))?;
     for s in &servers {
@@ -107,7 +108,20 @@ pub async fn export(client: &Client, args: ExportArgs) -> Result<(), Whatever> {
         std::fs::write(&path, json).whatever_context(format!("writing {}", path.display()))?;
         println!("wrote {}", path.display());
     }
-    println!("Exported {} server(s) to {}", servers.len(), args.dir.display());
+    let gdir = args.dir.join("groups");
+    std::fs::create_dir_all(&gdir).whatever_context(format!("creating {}", gdir.display()))?;
+    for g in &groups {
+        let path = gdir.join(format!("{}.json", g.name));
+        let json = serde_json::to_string_pretty(g).whatever_context("serializing")?;
+        std::fs::write(&path, json).whatever_context(format!("writing {}", path.display()))?;
+        println!("wrote {}", path.display());
+    }
+    println!(
+        "Exported {} server(s) and {} tool group(s) to {}",
+        servers.len(),
+        groups.len(),
+        args.dir.display()
+    );
     println!("Warning: the exported files contain credentials. Keep them private.");
     Ok(())
 }
@@ -120,6 +134,8 @@ pub struct GetArgs {
 
 #[derive(Debug, Subcommand)]
 enum GetWhat {
+    /// Show a tool group and its effective tools
+    Group(super::groups::NameArgs),
     /// Render a prompt
     Prompt {
         /// Canonical prompt name (<server>__<prompt>)
@@ -137,8 +153,9 @@ enum GetWhat {
     },
 }
 
-pub async fn get(client: &Client, args: GetArgs) -> Result<(), Whatever> {
+pub async fn get(client: &Client, registry: &str, args: GetArgs) -> Result<(), Whatever> {
     match args.what {
+        GetWhat::Group(a) => return super::groups::get(client, registry, a).await,
         GetWhat::Prompt { name, args } => {
             let mut map = serde_json::Map::new();
             for a in &args {

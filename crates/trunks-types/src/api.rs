@@ -193,6 +193,41 @@ pub struct EnableDisableResult {
     pub resources_affected: Vec<String>,
 }
 
+/// A tool group: the body of `POST /api/v0/tool-groups`, of `PUT /tool-groups/{name}`, the items
+/// of `GET /tool-groups`, and the `-c` file format of the CLI.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolGroup {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    /// Canonical tool names.
+    #[serde(default)]
+    pub included_tools: Vec<String>,
+    /// Server names: every enabled tool of each server.
+    #[serde(default)]
+    pub included_servers: Vec<String>,
+    /// Canonical tool names removed from the result. Exclusion always wins.
+    #[serde(default)]
+    pub excluded_tools: Vec<String>,
+}
+
+/// `POST /tool-groups` and `GET /tool-groups/{name}`: the group plus its MCP endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolGroupWithEndpoints {
+    #[serde(flatten)]
+    pub group: ToolGroup,
+    /// Path of the group's MCP endpoint (`/v0/groups/{name}/mcp`), relative to the server.
+    pub streamable_http_endpoint: String,
+}
+
+/// `PUT /tool-groups/{name}` response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateToolGroupResponse {
+    pub name: String,
+    pub old: ToolGroup,
+    pub new: ToolGroup,
+}
+
 /// `GET /api/v0/users/whoami` and the items of `GET /api/v0/users`. Never carries a token.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct User {

@@ -15,6 +15,8 @@ pub struct CreateArgs {
 
 #[derive(Debug, Subcommand)]
 enum CreateWhat {
+    /// A tool group from a JSON file (`-c`)
+    Group(super::groups::FileArgs),
     /// A human user of the REST API and the CLI (role `user`)
     User {
         /// Username (no whitespace)
@@ -65,8 +67,9 @@ fn allow_list_notes(allow_list: &[String]) {
     }
 }
 
-pub async fn create(client: &Client, args: CreateArgs) -> Result<(), Whatever> {
+pub async fn create(client: &Client, registry: &str, args: CreateArgs) -> Result<(), Whatever> {
     match args.what {
+        CreateWhat::Group(a) => return super::groups::create(client, registry, a).await,
         CreateWhat::User { name, access_token, conf } => {
             let mut req = match &conf {
                 Some(p) => read_conf::<CreateUserRequest>(p)?,
@@ -124,6 +127,8 @@ pub struct UpdateArgs {
 
 #[derive(Debug, Subcommand)]
 enum UpdateWhat {
+    /// Replace a tool group's definition from a JSON file (`-c`)
+    Group(super::groups::UpdateFileArgs),
     /// Rotate a user's token
     User {
         name: String,
@@ -150,6 +155,7 @@ enum UpdateWhat {
 
 pub async fn update(client: &Client, args: UpdateArgs) -> Result<(), Whatever> {
     match args.what {
+        UpdateWhat::Group(a) => return super::groups::update(client, a).await,
         UpdateWhat::User { name, access_token } => {
             let u = client
                 .update_user(&name, &UpdateUserRequest { access_token })
@@ -193,12 +199,14 @@ pub struct DeleteArgs {
 
 #[derive(Debug, Subcommand)]
 enum DeleteWhat {
+    Group(super::groups::NameArgs),
     User { name: String },
     McpClient { name: String },
 }
 
 pub async fn delete(client: &Client, args: DeleteArgs) -> Result<(), Whatever> {
     match args.what {
+        DeleteWhat::Group(a) => return super::groups::delete(client, a).await,
         DeleteWhat::User { name } => {
             client.delete_user(&name).await.whatever_context("deleting user")?;
             println!("User {name} deleted.");

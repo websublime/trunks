@@ -4,6 +4,7 @@
 
 pub mod catalog;
 pub mod config;
+pub mod groups;
 pub mod identity;
 pub mod oauth;
 pub mod registry;

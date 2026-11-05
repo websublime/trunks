@@ -11,6 +11,7 @@ pub mod catalog;
 pub mod domain;
 pub mod error;
 pub mod gateway;
+pub mod groups;
 pub mod identity;
 pub mod metrics;
 pub mod mode;

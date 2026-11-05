@@ -7,12 +7,12 @@ use trunks_core::domain::{
 };
 use trunks_core::ports::{
     ConfigStore, Discovered, IdentityStore, NewServer, RegistrySnapshot, RegistryStore,
-    ServerConfig,
+    ServerConfig, ToolGroupSpec,
 };
-use trunks_types::{ResourceUri, Role, ServerMode, ServerName, SessionMode, Transport};
+use trunks_types::{GroupName, ResourceUri, Role, ServerMode, ServerName, SessionMode, Transport};
 
 use crate::repos::registry::{NewPromptRow, NewResourceRow, NewServerRow, NewToolRow};
-use crate::repos::{catalog, config, identity, registry};
+use crate::repos::{catalog, config, groups, identity, registry};
 use crate::rows::{
     McpClientRow, PromptRow, ResourceRow, ServerRow, ToolGroupRow, ToolRow, UserRow,
 };
@@ -268,6 +268,35 @@ impl RegistryStore for Store {
         enabled: bool,
     ) -> trunks_core::Result<Vec<String>> {
         Ok(registry::set_resources_enabled(&self.0, server_id, uri, enabled).await?)
+    }
+
+    async fn create_group(&self, spec: &ToolGroupSpec) -> trunks_core::Result<ToolGroupRecord> {
+        Ok(groups::create(
+            &self.0,
+            spec.name.as_str(),
+            &spec.description,
+            &spec.included_tools,
+            &spec.included_servers,
+            &spec.excluded_tools,
+        )
+        .await
+        .map(ToolGroupRecord::from)?)
+    }
+
+    async fn update_group(&self, spec: &ToolGroupSpec) -> trunks_core::Result<bool> {
+        Ok(groups::update(
+            &self.0,
+            spec.name.as_str(),
+            &spec.description,
+            &spec.included_tools,
+            &spec.included_servers,
+            &spec.excluded_tools,
+        )
+        .await?)
+    }
+
+    async fn delete_group(&self, name: &GroupName) -> trunks_core::Result<bool> {
+        Ok(groups::delete(&self.0, name.as_str()).await?)
     }
 }
 
