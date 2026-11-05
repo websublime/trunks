@@ -8,6 +8,7 @@
 //! modules (added in later phases). See `docs/04-arquitectura.md`.
 
 pub mod catalog;
+pub mod dashboard;
 pub mod domain;
 pub mod error;
 pub mod gateway;

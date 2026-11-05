@@ -29,6 +29,9 @@ pub struct RegistryService {
     catalog: Catalog,
     sessions: Arc<SessionManager>,
     connect: ConnectOptions,
+    /// Sessions completed by this process (`session_id → server`), so the web app's polling
+    /// can see "completed" after the pending row is gone. Bounded by the TTL of sessions.
+    completed_oauth: Arc<dashmap::DashMap<String, (ServerName, std::time::Instant)>>,
 }
 
 /// Result of `register`: either done, or the caller must complete an OAuth authorization.
@@ -63,7 +66,14 @@ impl RegistryService {
         mut connect: ConnectOptions,
     ) -> Self {
         connect.oauth = Some(oauth.clone());
-        Self { store, oauth, catalog, sessions, connect }
+        Self {
+            store,
+            oauth,
+            catalog,
+            sessions,
+            connect,
+            completed_oauth: Arc::new(dashmap::DashMap::new()),
+        }
     }
 
     /// Validates the input, connects to the upstream, discovers its entities and persists
@@ -163,7 +173,10 @@ impl RegistryService {
         crate::oauth::exchange(&self.oauth, &pending, &url, code, state).await?;
         self.oauth.delete_pending(session_id).await?;
         match self.register(input, pending.force).await? {
-            RegisterOutcome::Registered(server) => Ok(server),
+            RegisterOutcome::Registered(server) => {
+                self.remember_completed(session_id, &server.name);
+                Ok(server)
+            }
             RegisterOutcome::AuthorizationRequired(_) => Err(Error::Upstream {
                 server: pending.server_name.to_string(),
                 reason: "the upstream still rejects the new access token".into(),
@@ -184,6 +197,60 @@ impl RegistryService {
     /// Removes expired pending authorizations (called at startup).
     pub async fn purge_expired_oauth(&self) -> Result<u64> {
         self.oauth.purge_expired_pending().await
+    }
+
+    /// The browser-callback variant of `complete_oauth`: the IdP only returns `code` and
+    /// `state`, so the session is looked up by `state`. Returns the registered server.
+    pub async fn complete_oauth_by_state(
+        &self,
+        code: &str,
+        state: &str,
+    ) -> Result<Arc<ServerRecord>> {
+        let pending = self
+            .oauth
+            .pending_by_state(state)
+            .await?
+            .ok_or_else(|| Error::not_found("authorization session for this state"))?;
+        self.complete_oauth(&pending.session_id, code, state).await
+    }
+
+    /// Dashboard inputs the catalog does not hold (pending sessions, which servers hold OAuth
+    /// tokens, gateway health notes).
+    pub async fn dashboard_extras(&self) -> Result<crate::dashboard::Extras> {
+        let mut extras = crate::dashboard::Extras::default();
+        for p in self.oauth.pending_all().await? {
+            extras.pending.insert(p.server_name.clone(), p);
+        }
+        for name in self.catalog.load().servers.keys() {
+            if self.oauth.credentials(name).await?.is_some_and(|c| c.has_tokens()) {
+                extras.authorized.push(name.clone());
+            }
+        }
+        for (name, h) in self.sessions.health() {
+            extras.health.insert(name, h);
+        }
+        Ok(extras)
+    }
+
+    fn remember_completed(&self, session_id: &str, server: &ServerName) {
+        let now = std::time::Instant::now();
+        let ttl = std::time::Duration::from_secs(60 * 60);
+        self.completed_oauth.retain(|_, (_, at)| now.duration_since(*at) < ttl);
+        self.completed_oauth.insert(session_id.to_owned(), (server.clone(), now));
+    }
+
+    /// Status of an authorization session for the web app's polling.
+    pub async fn oauth_session_status(
+        &self,
+        session_id: &str,
+    ) -> Result<crate::dashboard::OAuthSessionStatus> {
+        let pending = self.oauth.pending(session_id).await?;
+        let registered = self.completed_oauth.get(session_id).map(|e| e.0.clone());
+        Ok(crate::dashboard::oauth_session_status(
+            session_id,
+            pending.as_ref(),
+            registered.as_ref(),
+        ))
     }
 
     /// Flips the server flag. The affected lists hold the entities whose **effective** state

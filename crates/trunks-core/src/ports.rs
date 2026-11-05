@@ -241,6 +241,9 @@ pub trait OAuthStore: Send + Sync + 'static {
     async fn delete_oauth(&self, server: &ServerName) -> Result<()>;
 
     async fn pending(&self, session_id: &str) -> Result<Option<PendingAuthorization>>;
+    async fn pending_by_state(&self, state: &str) -> Result<Option<PendingAuthorization>>;
+    /// Every pending session (expired ones included, until purged).
+    async fn pending_all(&self) -> Result<Vec<PendingAuthorization>>;
     /// Replaces any pending session of the same server.
     async fn save_pending(&self, pending: &PendingAuthorization) -> Result<()>;
     async fn delete_pending(&self, session_id: &str) -> Result<()>;

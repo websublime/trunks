@@ -476,6 +476,24 @@ impl OAuthStore for Store {
             .transpose()
     }
 
+    async fn pending_by_state(
+        &self,
+        state: &str,
+    ) -> trunks_core::Result<Option<PendingAuthorization>> {
+        oauth::pending_by_state(&self.0, state)
+            .await?
+            .map(PendingAuthorization::try_from)
+            .transpose()
+    }
+
+    async fn pending_all(&self) -> trunks_core::Result<Vec<PendingAuthorization>> {
+        oauth::pending_sessions(&self.0)
+            .await?
+            .into_iter()
+            .map(PendingAuthorization::try_from)
+            .collect()
+    }
+
     async fn save_pending(&self, p: &PendingAuthorization) -> trunks_core::Result<()> {
         let w = OAuthPendingWrite {
             session_id: p.session_id.clone(),

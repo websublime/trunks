@@ -1,6 +1,6 @@
 # Trunks — Documento de Produto
 
-> Versão 2.0 (2026-11-04). Nome: **Trunks**. Licença: MPL-2.0 (provisória, D12).
+> Versão 2.1 (2026-11-05). Nome: **Trunks**. Licença: MPL-2.0 (provisória, D12).
 >
 > Vocabulário: Trunks v1 consegue abrir e normalizar os dados de uma geração anterior de gateway, referida nestes documentos simplesmente como **legacy** (D3). É uma funcionalidade de migração, não a identidade do produto.
 
@@ -117,10 +117,13 @@ As sessões stateful são **por servidor**, não por cliente downstream.
 ### 5.4 Governança (enterprise)
 - `init-server`, `login`, `whoami`.
 - CRUD de users e MCP clients; tokens gerados (32 bytes, base64url) ou fornecidos (≥8 chars, sem whitespace); token lido de env ou ficheiro em configs JSON.
-- Allow-lists aplicadas na listagem de tools e em **toda** invocação (tools, prompts, resources), nos endpoints global e de grupo.
+- **Teams** (D14): grupos de users com papéis `maintainer`/`member`. **Grants** do lado do recurso: `(user | team) → (server | tool group) → use`. Um `user` só vê e invoca o que lhe foi concedido (directamente ou via teams); o `admin` vê tudo.
+- **MCP clients com dono** (user ou team): acesso efectivo = grants do dono ∩ `allow_list` do client; clients sem dono mantêm a semântica actual. Users criam e rodam os seus próprios clients (self-service).
+- Allow-lists e grants aplicados na listagem e em **toda** invocação (tools, prompts, resources), nos endpoints global e de grupo.
+- Autenticação de humanos: token (v1, igual ao CLI) e **OIDC** (D16) com sincronização de role/teams a partir de claims (D17).
 
-### 5.5 Web app (development)
-Web app em `line://ui` embebida no binário: overview, servidores (registar incl. OAuth via popup+polling, apagar, toggle), tools/prompts (toggle), tool groups (criar/apagar), resources, diagnósticos. API própria em `/api/dashboard/*`, só leitura de sumários **sanitizados** (nunca expõe tokens, valores de env, secrets OAuth). A partir de v2.0 torna-se a consola autenticada (ver `05-roadmap.md`).
+### 5.5 Web app
+Web app em `line://ui` embebida no binário, disponível em **ambos os modos** (D15): em development sem auth; em enterprise com login (token; OIDC quando configurado). Ecrãs: overview, servidores (registar incl. OAuth via popup+polling, apagar, toggle), tools/prompts/resources (toggle), tool groups, diagnósticos; em enterprise ainda users, teams, MCP clients (admin e self-service) e acessos por recurso. A API própria `/api/dashboard/*` é **só de leitura agregada e sanitizada** (nunca expõe tokens, valores de env, secrets OAuth); as mutações usam `/api/v0`.
 
 ### 5.6 Operação
 - Binário único: `start` corre o servidor; o resto é CLI cliente da REST API.
@@ -132,9 +135,11 @@ Web app em `line://ui` embebida no binário: overview, servidores (registar incl
 
 ## 6. Fora de âmbito em v1
 
-- OAuth/SSO/OIDC para **clientes downstream** (só tokens estáticos) — v2.0 no roadmap.
+- OIDC para **MCP clients** (Trunks como OAuth 2.1 resource server; o Cursor a fazer login no IdP) — v2.0 no roadmap. Em v1 os clients usam tokens do Trunks; o OIDC v1 é só para humanos na web app/REST.
+- Organizações como tenant isolado (multi-tenancy) — v3. v1 é single-tenant com teams.
+- Passwords locais — nunca (token ou OIDC).
 - Prompts e resources em tool groups — v1.x.
-- Em enterprise, só admins registam servidores e criam grupos — resolvido pelas organizações em v2.x.
+- Em enterprise, só admins registam servidores e criam grupos (permissão `manage` por recurso fica para v1.x).
 - Sem OTLP export; sem audit logs detalhados — v3.
 - Sem suporte a sampling, elicitation, roots, notificações `list_changed`.
 - Sem TLS nativo (espera-se reverse proxy).
@@ -165,6 +170,10 @@ Web app em `line://ui` embebida no binário: overview, servidores (registar incl
 | D11 | **Acesso a dados sem ORM: `sqlx` 0.8** com `SqlitePool`/`PgPool` nativos atrás de um enum, SQL explícito escrito uma vez com placeholders `$N`, `Json<Value>` tipado, migrações por dialecto. Análise e protótipos em `06-analise-db.md`. | Fechada |
 | D13 | **Shapes JSON de `/api/v0` são os de Trunks**: snake_case, sem campos de ORM (`id`, `created_at`), credenciais nunca nas listagens (`env_keys`/`header_keys` só nomes). Paths e semântica estáveis dentro de 1.x. | Fechada |
 | D12 | **Licença: MPL-2.0** (provisória). Decidir antes do primeiro release público se se alinha com o resto do `websublime` (Apache-2.0/MIT). | Em aberto |
+| D14 | **Modelo de acesso v1: single-tenant, teams e grants do lado do recurso.** Teams (`maintainer`/`member`), grants `(user\|team) → (server\|tool group) → use`, `*` como alvo. MCP clients com dono opcional (user ou team): acesso efectivo = grants do dono ∩ `allow_list`. Admin global ignora grants; em development tudo é `DevOpen`. Em enterprise um `user` sem grants não vê nada (seguro por omissão; nota de migração). Orgs como tenant isolado ficam para v3. | Fechada |
+| D15 | **Web app em ambos os modos.** Em enterprise, `/api/dashboard/*`, `/api/v0/*` e os estáticos exigem autenticação de user (bearer ou sessão). `/api/dashboard` é só leitura agregada/sanitizada; mutações reutilizam `/api/v0` (sem duplicar contratos). | Fechada |
+| D16 | **Autenticação de humanos: token agora, OIDC na v1 (fase 6d), passwords nunca.** OIDC (Authorization Code + PKCE contra IdP externo, sessão em cookie `HttpOnly` guardada em DB) é a forma de login da web app em enterprise; o token continua a existir para CLI e break-glass. | Fechada |
+| D17 | **Entitlements externos entram por claims.** Um módulo único mapeia claims do ID token/userinfo (`groups`/`roles`, claim configurável) para role e memberships de teams no login (JIT); os grants continuam a ser geridos no Trunks. Outras fontes (API/SCIM do sistema de entitlements) implementam o mesmo trait mais tarde. | Proposto |
 
 ## 9. Critérios de sucesso v1.0
 

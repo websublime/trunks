@@ -260,3 +260,32 @@ async fn idle_stateful_sessions_are_swept() {
     assert_eq!(st.sessions.stateful_active(), 0, "swept after idle timeout");
     st.sessions.shutdown().await;
 }
+
+#[tokio::test]
+async fn session_manager_records_upstream_health() {
+    let sessions = SessionManager::new(SessionOptions::default());
+    let bad = server(
+        9,
+        "bad",
+        UpstreamConfig::Stdio {
+            command: "/nonexistent/binary".into(),
+            args: vec![],
+            env: BTreeMap::new(),
+        },
+        SessionMode::Stateless,
+    );
+    assert!(sessions.acquire(&bad).await.is_err());
+    let health = sessions.health();
+    let (name, h) = health.iter().find(|(n, _)| n.as_str() == "bad").unwrap();
+    assert_eq!(name.as_str(), "bad");
+    assert!(h.last_error.as_deref().is_some_and(|e| e.contains("failed to spawn")));
+    assert!(h.last_error_at.is_some() && h.last_ok_at.is_none());
+
+    let good = server(1, "good", stdio_config(), SessionMode::Stateless);
+    let lease = sessions.acquire(&good).await.unwrap();
+    sessions.release(lease, None).await;
+    let health = sessions.health();
+    let (_, h) = health.iter().find(|(n, _)| n.as_str() == "good").unwrap();
+    assert!(h.last_ok_at.is_some() && h.last_error.is_none());
+    sessions.shutdown().await;
+}

@@ -39,10 +39,17 @@ pub fn router(state: AppState) -> Router {
         .layer(from_fn_with_state(state.clone(), middleware::user_auth))
         .layer(from_fn_with_state(state.clone(), middleware::require_initialized));
 
+    // Dashboard reads: open in development, user-authenticated in enterprise (D15).
+    let dashboard = routes::dashboard::router()
+        .layer(from_fn_with_state(state.clone(), middleware::user_auth))
+        .merge(routes::dashboard::callback_router())
+        .layer(from_fn_with_state(state.clone(), middleware::require_initialized));
+
     let mut app = Router::new()
         .merge(routes::public::router())
         .merge(mcp::router(&state))
-        .nest("/api/v0", api_v0);
+        .nest("/api/v0", api_v0)
+        .nest("/api/dashboard", dashboard);
     if state.metrics.is_some() {
         app = app.route("/metrics", get(routes::public::metrics));
     }

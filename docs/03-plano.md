@@ -93,13 +93,15 @@ Entregue: `trunks-core::groups` (`validate` contra o catálogo, `diff`, `GroupSe
 
 Entregue: `trunks-core::oauth` (`DbCredentialStore`/`CapturedStateStore` sobre `rmcp::transport::auth`, `bootstrap`, `exchange`, `auth_client`), port `OAuthStore` + `trunks-db::repos::oauth` (escritas transaccionais) + migração `0004_oauth_issuer`, erro tipado `UpstreamAuthRequired` detectado na cadeia de erros do `initialize`, `RegisterOutcome` e `complete_oauth` no `RegistryService`, limpeza no `deregister`, purga no arranque, rota `…/complete`, `202` no `POST /servers`, SDK `complete_oauth`, CLI (`register` com listener loopback e browser, `oauth-complete`, flags `--oauth-*`), fakes de AS/upstream em `trunks-testing::oauth`. Testes: 2 e2e na API (DCR + restart-safe via DB, erros de sessão/state/code, bearer nas chamadas do gateway, export sem tokens, deregister limpa; cliente pré-registado sem DCR, refresh transparente persistido) e 1 e2e do binário (`register` → callback loopback → `invoke`). `force=true` com OAuth passa pelo `register` normal (coberto pelos testes de registry).
 
-### Fase 6 — Dashboard API + web app v0 em `line://ui` (3 sem.)
+### Fase 6 — Dashboard, modelo de acesso e web app em `line://ui` (5–6 sem.)
 
-- `trunks-core::dashboard` shaping sanitizado; `/api/dashboard/*` completo incl. `POST /servers` com retry OAuth usando `/api/dashboard/oauth/callback`, página HTML de callback, cache de resultados 10 min, `GET /oauth/session/{id}`. (1 sem.)
-- `web/app`: Lit + `line://ui` + Vite/TS; ecrãs: overview, servidores (registar incl. OAuth upstream via popup + polling, apagar, toggle), tools/prompts (toggle), tool groups (criar/apagar), resources, diagnósticos. Dark-first, `line-` components, tokens `--line-*`. (2 sem.)
-- `trunks-dashboard` (rust-embed) + `cargo xtask build-dashboard`; rotas estáticas dev-only.
-- Testes: e2e da dashboard API (nunca vaza segredos; 404 em enterprise; toggles reflectem em `/mcp`); smoke da web app com Playwright contra o binário.
-- Q1 do roadmap: se v1.0 precisar de sair mais cedo, a web app v0 desliza para v1.1 e a fase entrega só a API.
+Decisões D14–D17 (`01-produto.md`). Dividida em quatro PRs:
+
+- **6a — Dashboard API lean + gating.** `trunks-core::dashboard` (shaping sanitizado, puro), `/api/dashboard/{overview,servers,servers/{n},tools,prompts,resources,tool-groups,tool-groups/{n},diagnostics,oauth/session/{id}}` + `GET /api/dashboard/oauth/callback` (HTML; o backend completa a troca). Em enterprise todas as rotas de dashboard e estáticos passam por `user_auth` (bearer); em development ficam abertas. Mutações reutilizam `/api/v0`. Testes: nunca vaza segredos; 401 em enterprise sem token; callback completa o OAuth.
+  Entregue: `trunks-core::dashboard` (tipos + shaping puro, unit test de sanitização), `RuntimeInfo` no `AppState`, notas de saúde por upstream no `SessionManager`, `RegistryService::{complete_oauth_by_state, dashboard_extras, oauth_session_status}`, rotas `trunks-api::routes::dashboard` (reads atrás de `user_auth`, callback público), SDK `Client::token`. Testes: reads sanitizados + 401 em enterprise + degradação de grupo + diagnósticos; callback do browser completa a troca e o polling vê `completed`; saúde do `SessionManager`.
+- **6b — Teams, grants e clients com dono.** Migração `0005_access` (`teams`, `team_members`, `access_grants`, `mcp_clients.owner_kind/owner_id`), `trunks-core::access` (resolução pura do conjunto efectivo; tabela de casos), `Principal`/`UserPrincipal` com conjunto efectivo, filtragem em todas as listagens e invocações, `/api/v0/teams*`, `/api/v0/{servers,tool-groups}/{n}/access`, clients com `owner`, CLI (`create|delete team`, `add|remove team-member`, `grant|revoke`, `list teams|grants`). Testes: tabela de resolução, e2e de visibilidade e de self-service, grupo nunca alarga acesso.
+- **6c — Web app.** Lit + `line://ui` + Vite/TS em `web/app`; login por token em enterprise; ecrãs de 5.5; `trunks-dashboard` (rust-embed) + `cargo xtask build-dashboard`; smoke com Playwright contra o binário.
+- **6d — OIDC para humanos.** `GET /auth/login|callback|logout`, validação do ID token (JWKS, `iss`, `aud`, `nonce`), tabela `sessions` + cookie, JIT provisioning, mapa claims → role/teams (D17), botão "Sign in with SSO" na web app. Testes com IdP falso em wiremock.
 
 ### Fase 7 — Conformidade final, hardening e release v1.0 (2 sem.)
 
@@ -178,4 +180,4 @@ Uma fase só fecha quando **todos** se verificam:
 3. ~~Fixtures legacy~~ feitas (sintéticas; regenerar com binário real quando possível).
 4. ~~Spike S1~~ feito — sem plano B.
 5. ~~Spike S3~~ feito. **Fase 0 concluída.**
-6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2). ~~Fase 3~~ feita. ~~Fase 4~~ feita. ~~Fase 5~~ feita — seguir para a Fase 6 (dashboard API + web app em `line://ui`).
+6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2). ~~Fase 3~~ feita. ~~Fase 4~~ feita. ~~Fase 5~~ feita — Fase 6 em curso (6a → 6b → 6c → 6d; ver D14–D17).
