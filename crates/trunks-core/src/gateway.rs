@@ -245,7 +245,7 @@ impl ServerHandler for GatewayHandler {
         let snap = self.state.catalog.load();
         let tools = snap
             .enabled_tools()
-            .filter(|t| self.in_scope(&snap, &t.canonical) && p.may_access(&t.server))
+            .filter(|t| self.in_scope(&snap, &t.canonical) && p.may_use_tool(&snap, &t.canonical))
             .map(|t| to_mcp_tool(t))
             .collect();
         Ok(ListToolsResult { tools, ..Default::default() })
@@ -267,7 +267,7 @@ impl ServerHandler for GatewayHandler {
         {
             return Err(ErrorData::invalid_params(format!("tool '{canonical}' not found"), None));
         }
-        if !p.may_access(canonical.server()) {
+        if !p.may_use_tool(&snap, &canonical) {
             return Err(ErrorData::internal_error(
                 format!("not authorized to access MCP server {}", canonical.server()),
                 None,

@@ -1,3 +1,4 @@
+pub mod access;
 pub mod auth;
 pub mod groups;
 pub mod identities;

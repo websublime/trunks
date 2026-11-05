@@ -17,6 +17,8 @@ pub struct CreateArgs {
 enum CreateWhat {
     /// A tool group from a JSON file (`-c`)
     Group(super::groups::FileArgs),
+    /// A team (enterprise mode)
+    Team(super::access::TeamArgs),
     /// A human user of the REST API and the CLI (role `user`)
     User {
         /// Username (no whitespace)
@@ -40,10 +42,23 @@ enum CreateWhat {
         /// Custom token (≥ 8 chars, no whitespace); generated when omitted
         #[arg(long)]
         access_token: Option<String>,
-        /// JSON file with `name`, `description`, `allow_list`, `access_token` (`${VAR}` expanded)
+        /// Owner: `user:<name>` or `team:<name>` (admins may omit; users default to themselves)
+        #[arg(long, value_name = "KIND:NAME")]
+        owner: Option<String>,
+        /// JSON file with `name`, `description`, `allow_list`, `access_token`, `owner` (`${VAR}` expanded)
         #[arg(short = 'c', long = "conf", value_name = "FILE")]
         conf: Option<std::path::PathBuf>,
     },
+}
+
+fn parse_owner(s: &str) -> Result<trunks_types::api::Owner, Whatever> {
+    let Some((kind, name)) = s.split_once(':') else {
+        snafu::whatever!("--owner must be user:<name> or team:<name>");
+    };
+    if kind != "user" && kind != "team" {
+        snafu::whatever!("--owner must be user:<name> or team:<name>");
+    }
+    Ok(trunks_types::api::Owner { kind: kind.into(), name: name.into() })
 }
 
 fn read_conf<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Result<T, Whatever> {
@@ -55,21 +70,26 @@ fn read_conf<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Result<T
     serde_json::from_value(value).whatever_context(format!("{} is not valid", path.display()))
 }
 
-fn allow_list_notes(allow_list: &[String]) {
-    if allow_list.iter().any(|a| a == "*") {
-        println!(
+fn allow_list_notes(allow_list: &[String], owned: bool) {
+    let wildcard = allow_list.iter().any(|a| a == "*");
+    match (wildcard, allow_list.is_empty(), owned) {
+        (true, _, true) | (_, true, true) => {
+            println!("Note: on an owned client this means everything its owner can access.");
+        }
+        (true, _, false) => println!(
             "Warning: this client can access every registered server (allow list contains \"*\")."
-        );
-    } else if allow_list.is_empty() {
-        println!(
+        ),
+        (_, true, false) => println!(
             "Note: the allow list is empty; this client cannot reach any server until it is updated."
-        );
+        ),
+        _ => {}
     }
 }
 
 pub async fn create(client: &Client, registry: &str, args: CreateArgs) -> Result<(), Whatever> {
     match args.what {
         CreateWhat::Group(a) => return super::groups::create(client, registry, a).await,
+        CreateWhat::Team(a) => return super::access::create_team(client, a).await,
         CreateWhat::User { name, access_token, conf } => {
             let mut req = match &conf {
                 Some(p) => read_conf::<CreateUserRequest>(p)?,
@@ -87,7 +107,7 @@ pub async fn create(client: &Client, registry: &str, args: CreateArgs) -> Result
             println!("Log in with: trunks login {}", u.access_token);
             println!("This token is shown only once.");
         }
-        CreateWhat::McpClient { name, allow, description, access_token, conf } => {
+        CreateWhat::McpClient { name, allow, description, access_token, owner, conf } => {
             let mut req = match &conf {
                 Some(p) => read_conf::<CreateMcpClientRequest>(p)?,
                 None => CreateMcpClientRequest::default(),
@@ -104,11 +124,17 @@ pub async fn create(client: &Client, registry: &str, args: CreateArgs) -> Result
             if access_token.is_some() {
                 req.access_token = access_token;
             }
+            if let Some(o) = &owner {
+                req.owner = Some(parse_owner(o)?);
+            }
             let c = client.create_client(&req).await.whatever_context("creating MCP client")?;
             println!("MCP client {} created.", c.name);
+            if let Some(o) = &c.owner {
+                println!("Owner: {} {}", o.kind, o.name);
+            }
             println!("Access token: {}", c.access_token.unwrap_or_default());
             println!("Allowed servers: {}", list_or_none(&c.allow_list));
-            allow_list_notes(&c.allow_list);
+            allow_list_notes(&c.allow_list, c.owner.is_some());
             println!("This token is shown only once.");
         }
     }
@@ -181,7 +207,7 @@ pub async fn update(client: &Client, args: UpdateArgs) -> Result<(), Whatever> {
                 client.update_client(&name, &req).await.whatever_context("updating MCP client")?;
             println!("MCP client {} updated.", c.name);
             println!("Allowed servers: {}", list_or_none(&c.allow_list));
-            allow_list_notes(&c.allow_list);
+            allow_list_notes(&c.allow_list, c.owner.is_some());
             if let Some(t) = c.access_token {
                 println!("Access token: {t}");
                 println!("This token is shown only once.");
@@ -200,6 +226,7 @@ pub struct DeleteArgs {
 #[derive(Debug, Subcommand)]
 enum DeleteWhat {
     Group(super::groups::NameArgs),
+    Team(super::access::TeamNameArgs),
     User { name: String },
     McpClient { name: String },
 }
@@ -207,6 +234,7 @@ enum DeleteWhat {
 pub async fn delete(client: &Client, args: DeleteArgs) -> Result<(), Whatever> {
     match args.what {
         DeleteWhat::Group(a) => return super::groups::delete(client, a).await,
+        DeleteWhat::Team(a) => return super::access::delete_team(client, a).await,
         DeleteWhat::User { name } => {
             client.delete_user(&name).await.whatever_context("deleting user")?;
             println!("User {name} deleted.");

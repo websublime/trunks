@@ -61,7 +61,7 @@ async fn drop_pg(admin_url: &str, name: &str) {
 async fn assert_enterprise_fixture(db: &Db) {
     // migrations: baseline must be a no-op on legacy schema; all three versions applied
     let applied = db.migrate().await.unwrap();
-    assert_eq!(applied.versions, vec![1, 2, 3, 4], "all migrations applied on first run");
+    assert_eq!(applied.versions, vec![1, 2, 3, 4, 5], "all migrations applied on first run");
     assert_eq!(db.migrate().await.unwrap().versions, Vec::<i64>::new(), "second run is a no-op");
 
     // normalize_legacy
@@ -158,10 +158,20 @@ async fn assert_enterprise_fixture(db: &Db) {
         let admin = store.user_by_token("admin-token-0123456789").await.unwrap().unwrap();
         assert_eq!(admin.role, trunks_types::Role::Admin);
         let root = store.client_by_token("root-token-0123456789").await.unwrap().unwrap();
-        assert!(root.may_access(&trunks_types::ServerName::parse("anything").unwrap()));
+        let access = |c: &trunks_core::domain::McpClientRecord| {
+            trunks_core::access::AccessSet::from_allow_list(&c.allow_list)
+        };
+        assert!(
+            access(&root).may_use_server(&trunks_types::ServerName::parse("anything").unwrap())
+        );
+        assert!(root.owner.is_none(), "legacy clients have no owner");
         let cursor = store.client_by_token("cursor-token-0123456789").await.unwrap().unwrap();
-        assert!(cursor.may_access(&trunks_types::ServerName::parse("filesystem").unwrap()));
-        assert!(!cursor.may_access(&trunks_types::ServerName::parse("atlassian").unwrap()));
+        assert!(
+            access(&cursor).may_use_server(&trunks_types::ServerName::parse("filesystem").unwrap())
+        );
+        assert!(
+            !access(&cursor).may_use_server(&trunks_types::ServerName::parse("atlassian").unwrap())
+        );
         let created = store
             .create_user("carol", trunks_types::Role::User, "carol-token-0123456789")
             .await
@@ -291,7 +301,7 @@ async fn sqlite_dev_fixture_has_no_identities() {
 async fn sqlite_fresh_database_initialises() {
     let dir = tempfile::tempdir().unwrap();
     let db = Db::connect(&format!("sqlite://{}/fresh.db", dir.path().display()), 2).await.unwrap();
-    assert_eq!(db.migrate().await.unwrap().versions, vec![1, 2, 3, 4]);
+    assert_eq!(db.migrate().await.unwrap().versions, vec![1, 2, 3, 4, 5]);
     let store = Store(db.clone());
     assert!(store.get().await.unwrap().is_none());
     assert!(store.init(ServerMode::Development).await.unwrap());

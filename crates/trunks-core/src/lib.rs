@@ -7,6 +7,7 @@
 //! [`ports`], and the MCP SDK is only visible from the `gateway` and `upstream`
 //! modules (added in later phases). See `docs/04-arquitectura.md`.
 
+pub mod access;
 pub mod catalog;
 pub mod dashboard;
 pub mod domain;

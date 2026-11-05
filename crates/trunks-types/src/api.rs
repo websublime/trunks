@@ -267,18 +267,110 @@ pub struct UserWithToken {
     pub access_token: String,
 }
 
+/// Who owns an MCP client (D14): a user or a team, by name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Owner {
+    /// `user` or `team`
+    pub kind: String,
+    pub name: String,
+}
+
 /// An MCP client as listed by `GET /api/v0/clients`. Never carries the token.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpClient {
     pub name: String,
     #[serde(default)]
     pub description: String,
-    /// Server names this client may reach; `["*"]` means every server, `[]` none.
+    /// Server names this client may reach; `["*"]` means every server, `[]` none. With an
+    /// owner it narrows the owner's grants instead (empty = everything the owner can).
     #[serde(default)]
     pub allow_list: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Owner>,
 }
 
-/// `POST /api/v0/clients` body (enterprise, admin).
+/// A team (D14).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Team {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TeamMember {
+    pub username: String,
+    /// `maintainer` or `member`
+    pub role: String,
+}
+
+/// `GET /api/v0/teams/{name}`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TeamDetail {
+    #[serde(flatten)]
+    pub team: Team,
+    pub members: Vec<TeamMember>,
+}
+
+/// `POST /api/v0/teams/{name}/members`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AddTeamMemberRequest {
+    pub username: String,
+    /// `maintainer` or `member` (default)
+    #[serde(default)]
+    pub role: Option<String>,
+}
+
+/// A grant: subject → target → `use` (D14). Body of `POST/DELETE /api/v0/grants`, items of
+/// `GET /api/v0/grants` and of `GET /{servers,tool-groups}/{n}/access`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrantSpec {
+    /// `user` or `team`
+    pub subject_kind: String,
+    pub subject: String,
+    /// `server` or `tool_group`
+    pub target_kind: String,
+    /// A server name, a tool group name, or `*` (every server).
+    pub target: String,
+}
+
+/// Query of `GET /api/v0/grants`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrantsQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+/// What the caller may use (`GET /api/v0/users/whoami`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccessView {
+    pub all: bool,
+    #[serde(default)]
+    pub servers: Vec<String>,
+    #[serde(default)]
+    pub tool_groups: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TeamMembership {
+    pub name: String,
+    pub role: String,
+}
+
+/// `GET /api/v0/users/whoami`: the user plus teams and effective access.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WhoAmI {
+    pub username: String,
+    pub role: Role,
+    #[serde(default)]
+    pub teams: Vec<TeamMembership>,
+    pub access: AccessView,
+}
+
+/// `POST /api/v0/clients` body (enterprise). Admins may set any `owner` or none; a regular
+/// user's client is owned by that user unless `owner` names a team they maintain.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CreateMcpClientRequest {
     pub name: String,
@@ -289,6 +381,8 @@ pub struct CreateMcpClientRequest {
     /// Custom token (≥ 8 chars, no whitespace); generated when omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Owner>,
 }
 
 /// `PUT /api/v0/clients/{name}` body. Every field is optional; `rotate_token` generates a
@@ -314,6 +408,8 @@ pub struct McpClientWithToken {
     pub description: String,
     #[serde(default)]
     pub allow_list: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Owner>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
 }
