@@ -8,8 +8,9 @@ use snafu::{ResultExt, Snafu};
 use trunks_types::api::{
     CreateMcpClientRequest, CreateUserRequest, EnableDisableResult, InitRequest, InitResponse,
     McpClient, McpClientWithToken, McpServer, Prompt, PromptRenderResult, RegisterServerInput,
-    RegisterServerResult, Resource, ResourceReadResult, ServerMetadata, Tool, ToolInvokeResult,
-    UpdateMcpClientRequest, UpdateUserRequest, User, UserWithToken,
+    RegisterServerResult, Resource, ResourceReadResult, ServerMetadata, Tool, ToolGroup,
+    ToolGroupWithEndpoints, ToolInvokeResult, UpdateMcpClientRequest, UpdateToolGroupResponse,
+    UpdateUserRequest, User, UserWithToken,
 };
 use trunks_types::{ApiErrorResponse, ServerMode};
 
@@ -180,6 +181,36 @@ impl Client {
     /// `GET /api/v0/server_configs` — registration inputs **with secrets** (admin).
     pub async fn server_configs(&self) -> Result<Vec<RegisterServerInput>> {
         self.get("api/v0/server_configs", &[]).await
+    }
+
+    // ---- /api/v0, tool groups (admin)
+    pub async fn list_groups(&self) -> Result<Vec<ToolGroup>> {
+        self.get("api/v0/tool-groups", &[]).await
+    }
+
+    pub async fn get_group(&self, name: &str) -> Result<ToolGroupWithEndpoints> {
+        self.get(&format!("api/v0/tool-groups/{name}"), &[]).await
+    }
+
+    pub async fn create_group(&self, group: &ToolGroup) -> Result<ToolGroupWithEndpoints> {
+        self.post("api/v0/tool-groups", &[], group).await
+    }
+
+    pub async fn update_group(
+        &self,
+        name: &str,
+        group: &ToolGroup,
+    ) -> Result<UpdateToolGroupResponse> {
+        self.put(&format!("api/v0/tool-groups/{name}"), group).await
+    }
+
+    pub async fn delete_group(&self, name: &str) -> Result<()> {
+        self.delete(&format!("api/v0/tool-groups/{name}")).await
+    }
+
+    /// `GET /api/v0/tool-groups/{name}/effective-tools`
+    pub async fn group_tools(&self, name: &str) -> Result<Vec<Tool>> {
+        self.get(&format!("api/v0/tool-groups/{name}/effective-tools"), &[]).await
     }
 
     // ---- /api/v0, enterprise + admin

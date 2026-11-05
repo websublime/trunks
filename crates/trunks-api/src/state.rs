@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use trunks_core::catalog::Catalog;
 use trunks_core::gateway::GatewayState;
+use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
@@ -17,6 +18,7 @@ pub struct AppState {
     pub mcp: crate::mcp::McpMounts,
     pub registry: Arc<dyn RegistryStore>,
     pub registry_service: RegistryService,
+    pub groups: GroupService,
     pub identity: IdentityService,
     pub mode: ModeService,
     /// `None` when metrics are disabled (no `/metrics` route).

@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
-use trunks_types::{ResourceUri, Role, ServerMode, ServerName, SessionMode};
+use trunks_types::{GroupName, ResourceUri, Role, ServerMode, ServerName, SessionMode};
 
 use crate::Result;
 use crate::domain::{
@@ -127,6 +127,24 @@ pub trait RegistryStore: Send + Sync + 'static {
         uri: Option<&str>,
         enabled: bool,
     ) -> Result<Vec<String>>;
+
+    /// Inserts a tool group (validated). A duplicate name is an `InvalidInput` error.
+    async fn create_group(&self, spec: &ToolGroupSpec) -> Result<ToolGroupRecord>;
+    /// Replaces every field of the group named `spec.name`, empty lists included. Returns
+    /// `false` when there is no such group.
+    async fn update_group(&self, spec: &ToolGroupSpec) -> Result<bool>;
+    /// Returns `false` when there was no such group.
+    async fn delete_group(&self, name: &GroupName) -> Result<bool>;
+}
+
+/// A tool group as written (validated against the catalog by `groups::GroupService`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolGroupSpec {
+    pub name: GroupName,
+    pub description: String,
+    pub included_tools: Vec<String>,
+    pub included_servers: Vec<String>,
+    pub excluded_tools: Vec<String>,
 }
 
 /// Users and MCP clients. Tokens are compared exact-match (plaintext in v1, see §4.9).

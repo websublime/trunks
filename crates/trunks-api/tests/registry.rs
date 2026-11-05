@@ -12,6 +12,7 @@ use trunks_api::mcp::{McpMounts, McpOptions};
 use trunks_client::Client;
 use trunks_core::catalog::Catalog;
 use trunks_core::gateway::GatewayState;
+use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
 use trunks_core::mode::ModeService;
 use trunks_core::registry::RegistryService;
@@ -45,10 +46,11 @@ async fn boot(mode: ServerMode) -> (Client, Client, tempfile::TempDir) {
         mcp: McpMounts::new(gateway, McpOptions::default()),
         registry_service: RegistryService::new(
             store.clone(),
-            catalog,
+            catalog.clone(),
             sessions,
             ConnectOptions::default(),
         ),
+        groups: GroupService::new(store.clone(), catalog),
         registry: store,
         identity,
         mode: mode_svc,
@@ -450,4 +452,156 @@ async fn mcp_clients_crud_and_allow_lists_apply_live() {
 
     // the anonymous client cannot touch identities
     assert_eq!(api_status(&anon.list_clients().await.unwrap_err()), 401);
+}
+
+// ---- Phase 4: tool groups
+
+use trunks_types::api::ToolGroup;
+
+fn group(name: &str, tools: &[&str], servers: &[&str], excluded: &[&str]) -> ToolGroup {
+    ToolGroup {
+        name: name.into(),
+        description: "d".into(),
+        included_tools: tools.iter().map(|s| (*s).to_owned()).collect(),
+        included_servers: servers.iter().map(|s| (*s).to_owned()).collect(),
+        excluded_tools: excluded.iter().map(|s| (*s).to_owned()).collect(),
+    }
+}
+
+async fn mcp_group_tools(
+    base: &str,
+    group: &str,
+    token: Option<&str>,
+) -> Result<Vec<String>, String> {
+    use rmcp::ServiceExt as _;
+    let mut h = reqwest::header::HeaderMap::new();
+    if let Some(t) = token {
+        h.insert(reqwest::header::AUTHORIZATION, format!("Bearer {t}").parse().unwrap());
+    }
+    let rc = reqwest::Client::builder().default_headers(h).build().unwrap();
+    let t = rmcp::transport::StreamableHttpClientTransport::with_client(
+        rc,
+        rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(
+            format!("{base}/v0/groups/{group}/mcp"),
+        ),
+    );
+    let c = ().serve(t).await.map_err(|e| e.to_string())?;
+    let tools = c.list_all_tools().await.map_err(|e| e.to_string())?;
+    Ok(tools.iter().map(|t| t.name.to_string()).collect())
+}
+
+#[tokio::test]
+async fn tool_groups_crud_validation_and_degradation() {
+    let (admin, _anon, _dir) = boot(ServerMode::Development).await;
+    let base = admin.base_url().to_string().trim_end_matches('/').to_owned();
+    admin.register_server(&stdio_input("alpha"), false).await.unwrap();
+    admin.register_server(&stdio_input("beta"), false).await.unwrap();
+
+    // validation
+    let e = admin.create_group(&group("bad name", &["alpha__echo"], &[], &[])).await.unwrap_err();
+    assert_eq!(api_status(&e), 400);
+    let e = admin.create_group(&group("g", &["alpha__nope"], &[], &[])).await.unwrap_err();
+    assert!(e.to_string().contains("does not exist or is disabled"), "{e}");
+    let e = admin.create_group(&group("g", &[], &["gamma"], &[])).await.unwrap_err();
+    assert!(e.to_string().contains("server 'gamma' does not exist"), "{e}");
+    let e =
+        admin.create_group(&group("g", &["alpha__echo"], &[], &["alpha__echo"])).await.unwrap_err();
+    assert!(e.to_string().contains("no enabled tools"), "{e}");
+    admin.set_entities_enabled("tools", "alpha__fail", false).await.unwrap();
+    let e = admin.create_group(&group("g", &["alpha__fail"], &[], &[])).await.unwrap_err();
+    assert!(e.to_string().contains("disabled"), "{e}");
+
+    // create: lists de-duplicated and sorted; endpoint returned; effective = union − exclusions
+    let created = admin
+        .create_group(&group("dev", &["alpha__echo", "alpha__echo"], &["beta"], &["beta__fail"]))
+        .await
+        .unwrap();
+    assert_eq!(created.streamable_http_endpoint, "/v0/groups/dev/mcp");
+    assert_eq!(created.group.included_tools, vec!["alpha__echo"]);
+    let eff: Vec<String> =
+        admin.group_tools("dev").await.unwrap().iter().map(|t| t.name.to_string()).collect();
+    assert_eq!(eff, ["alpha__echo", "beta__echo", "beta__echo_headers"]);
+    assert_eq!(mcp_group_tools(&base, "dev", None).await.unwrap(), eff);
+    assert_eq!(admin.list_groups().await.unwrap().len(), 1);
+    assert_eq!(admin.get_group("dev").await.unwrap().group.included_servers, vec!["beta"]);
+    assert!(
+        admin
+            .create_group(&group("dev", &["alpha__echo"], &[], &[]))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("already exists")
+    );
+    assert_eq!(api_status(&admin.get_group("nope").await.unwrap_err()), 404);
+
+    // update is a full replacement; response carries old and new
+    let upd = admin
+        .update_group("dev", &group("ignored", &["alpha__echo_headers"], &[], &[]))
+        .await
+        .unwrap();
+    assert_eq!(upd.name, "dev");
+    assert_eq!(upd.old.included_servers, vec!["beta"]);
+    assert!(upd.new.included_servers.is_empty());
+    assert_eq!(mcp_group_tools(&base, "dev", None).await.unwrap(), ["alpha__echo_headers"]);
+    assert_eq!(
+        api_status(
+            &admin.update_group("nope", &group("x", &["alpha__echo"], &[], &[])).await.unwrap_err()
+        ),
+        404
+    );
+
+    // disabling the only tool degrades the group to empty (no failure); re-enabling restores it
+    admin.set_entities_enabled("tools", "alpha__echo_headers", false).await.unwrap();
+    assert!(mcp_group_tools(&base, "dev", None).await.unwrap().is_empty());
+    admin.set_entities_enabled("tools", "alpha__echo_headers", true).await.unwrap();
+    assert_eq!(mcp_group_tools(&base, "dev", None).await.unwrap().len(), 1);
+
+    // deregistering the server degrades too; the stored definition is untouched
+    admin.deregister_server("alpha").await.unwrap();
+    assert!(mcp_group_tools(&base, "dev", None).await.unwrap().is_empty());
+    assert_eq!(
+        admin.get_group("dev").await.unwrap().group.included_tools,
+        vec!["alpha__echo_headers"]
+    );
+
+    // delete: idempotent; the group endpoint disappears (cached service dropped)
+    admin.delete_group("dev").await.unwrap();
+    admin.delete_group("dev").await.unwrap();
+    assert!(admin.list_groups().await.unwrap().is_empty());
+    assert!(mcp_group_tools(&base, "dev", None).await.is_err());
+}
+
+#[tokio::test]
+async fn tool_groups_never_widen_a_client_allow_list() {
+    let (admin, anon, _dir) = boot(ServerMode::Enterprise).await;
+    let base = admin.base_url().to_string().trim_end_matches('/').to_owned();
+    admin.register_server(&stdio_input("alpha"), false).await.unwrap();
+    admin.register_server(&stdio_input("beta"), false).await.unwrap();
+    admin.create_group(&group("both", &[], &["alpha", "beta"], &[])).await.unwrap();
+    let c = admin
+        .create_client(&CreateMcpClientRequest {
+            name: "only-beta".into(),
+            allow_list: vec!["beta".into()],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let token = c.access_token.unwrap();
+    let tools = mcp_group_tools(&base, "both", Some(&token)).await.unwrap();
+    assert_eq!(tools, ["beta__echo", "beta__echo_headers", "beta__fail"]);
+    assert!(
+        mcp_group_tools(&base, "both", None).await.is_err(),
+        "group endpoints need a client token"
+    );
+    // a user cannot manage groups
+    let bob = admin
+        .create_user(&CreateUserRequest { username: "bob".into(), access_token: None })
+        .await
+        .unwrap();
+    let as_bob = anon.with_token(SecretString::from(bob.access_token));
+    assert_eq!(
+        api_status(&as_bob.create_group(&group("x", &[], &["alpha"], &[])).await.unwrap_err()),
+        403
+    );
+    assert_eq!(api_status(&as_bob.list_groups().await.unwrap_err()), 403);
 }

@@ -28,6 +28,7 @@ pub mod messages {
     pub const URL_REQUIRED: &str = "url is required for the streamable_http transport";
     pub const COMMAND_REQUIRED: &str = "command is required for the stdio transport";
     pub const USERNAME_REQUIRED: &str = "username is required";
+    pub const GROUP_NO_TOOLS: &str = "the tool group resolves to no enabled tools; include at least one existing, enabled tool or server";
     pub const ADMIN_CANNOT_BE_DELETED: &str = "the admin user cannot be deleted";
     pub const INVALID_TOKEN_FORMAT: &str =
         "access token must be at least 8 characters long and contain no whitespace";

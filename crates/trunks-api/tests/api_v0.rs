@@ -14,6 +14,7 @@ use trunks_api::AppState;
 use trunks_api::mcp::{McpMounts, McpOptions};
 use trunks_core::catalog::Catalog;
 use trunks_core::gateway::GatewayState;
+use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
@@ -61,6 +62,7 @@ async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
             gateway.sessions.clone(),
             ConnectOptions::default(),
         ),
+        groups: GroupService::new(store.clone(), gateway.catalog.clone()),
         registry: store,
         identity,
         mode,
