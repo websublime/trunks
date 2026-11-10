@@ -172,11 +172,58 @@ async fn forward_stderr(
     }
 }
 
+/// The processes started by a stdio upstream — the server itself and anything it launched
+/// (`npx` starts `node`, a wrapper script starts the real server). Dropping this kills
+/// whatever is left of them, so that ending a session never leaves orphans behind.
+///
+/// - Unix: the child leads its own process group, and the group gets `SIGKILL`.
+/// - Windows: the child runs in a job object that terminates its processes when the child
+///   handle is closed, so there is nothing to do here.
+#[derive(Debug, Default)]
+struct ProcessTree {
+    #[cfg(unix)]
+    group: Option<nix::unistd::Pid>,
+}
+
+impl ProcessTree {
+    /// The tree whose root is the child `pid` (which must have been spawned by [`in_tree`]).
+    #[cfg_attr(not(unix), allow(unused_variables))]
+    fn rooted_at(pid: Option<u32>) -> Self {
+        Self {
+            #[cfg(unix)]
+            group: pid.and_then(|pid| i32::try_from(pid).ok()).map(nix::unistd::Pid::from_raw),
+        }
+    }
+}
+
+impl Drop for ProcessTree {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(group) = self.group {
+            // "No such process" is the normal outcome: everything already exited.
+            let _ = nix::sys::signal::killpg(group, nix::sys::signal::Signal::SIGKILL);
+        }
+    }
+}
+
+/// Makes `command` the root of a process tree that can be killed as a whole.
+fn in_tree(command: tokio::process::Command) -> process_wrap::tokio::CommandWrap {
+    let mut command = process_wrap::tokio::CommandWrap::from(command);
+    command.wrap(process_wrap::tokio::KillOnDrop);
+    #[cfg(unix)]
+    command.wrap(process_wrap::tokio::ProcessGroup::leader());
+    #[cfg(windows)]
+    command.wrap(process_wrap::tokio::JobObject);
+    command
+}
+
 /// A live, initialized MCP client session with one upstream.
 pub struct UpstreamConn {
     server: ServerName,
+    // Declared before `tree`: the session is torn down first, then the leftovers are killed.
     peer: RunningService<RoleClient, ()>,
     call_timeout: Option<Duration>,
+    tree: ProcessTree,
 }
 
 impl std::fmt::Debug for UpstreamConn {
@@ -266,14 +313,15 @@ impl UpstreamConn {
             for (k, v) in env {
                 c.env(k, v.expose_secret());
             }
-            c.kill_on_drop(true);
         });
         // stderr is piped and logged by us. Left to rmcp's default it would be inherited:
         // the upstream would write straight into this process's own stderr, unredacted.
-        let (transport, stderr) = TokioChildProcess::builder(cmd)
+        let (transport, stderr) = TokioChildProcess::builder(in_tree(cmd))
             .stderr(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| upstream_err(server, format!("failed to spawn '{command}': {e}")))?;
+        // From here on, leaving this function for any reason kills the whole tree.
+        let tree = ProcessTree::rooted_at(transport.id());
         if let Some(stderr) = stderr {
             tokio::spawn(forward_stderr(server.clone(), stderr, redaction_needles(env)));
         }
@@ -281,7 +329,7 @@ impl UpstreamConn {
             ().serve(transport)
                 .await
                 .map_err(|e| upstream_err(server, format!("initialize failed: {e}")))?;
-        Ok(Self { server: server.clone(), peer, call_timeout: None })
+        Ok(Self { server: server.clone(), peer, call_timeout: None, tree })
     }
 
     async fn connect_http(
@@ -329,7 +377,7 @@ impl UpstreamConn {
             let transport = StreamableHttpClientTransport::with_client(client, cfg);
             ().serve(transport).await.map_err(|e| init_error(server, &e))?
         };
-        Ok(Self { server: server.clone(), peer, call_timeout: None })
+        Ok(Self { server: server.clone(), peer, call_timeout: None, tree: ProcessTree::default() })
     }
 
     #[must_use]
@@ -399,9 +447,11 @@ impl UpstreamConn {
         self.bounded(self.peer.read_resource(params)).await
     }
 
-    /// Closes the session (and kills a stdio child process).
+    /// Closes the session. A stdio upstream is asked to exit (its stdin is closed, then
+    /// `SIGTERM`, then it is killed), and whatever it started that is still running is killed.
     pub async fn close(self) {
         let _ = self.peer.cancel().await;
+        drop(self.tree);
     }
 
     fn map(&self, e: &ServiceError) -> Error {

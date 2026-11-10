@@ -67,6 +67,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"]
 prometheus-client = "0.23"
 
 # misc
+process-wrap = { version = "10", features = ["tokio1"] }
+nix = { version = "0.31", default-features = false, features = ["signal"] }
 secrecy = { version = "0.10", features = ["serde"] }
 arc-swap = "1"
 dashmap = "6"

@@ -145,6 +145,51 @@ async fn connect_errors_are_actionable() {
     assert!(err.contains("initialize failed") || err.contains("timed out"), "{err}");
 }
 
+/// Connects to a stdio upstream that starts a process of its own which never exits by
+/// itself. Returns the connection and the socket that descendant holds open: it closes when,
+/// and only when, the descendant dies.
+async fn upstream_with_descendant() -> (UpstreamConn, tokio::net::TcpStream) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let config = UpstreamConfig::Stdio {
+        command: trunks_testing::fake_upstream_bin().to_string_lossy().into_owned(),
+        args: vec![],
+        env: BTreeMap::from([("FAKE_UPSTREAM_SPAWN_DESCENDANT".to_owned(), addr.into())]),
+    };
+    let name = ServerName::parse("tree").unwrap();
+    let conn = UpstreamConn::connect(&name, &config, &ConnectOptions::default()).await.unwrap();
+    let (socket, _) = tokio::time::timeout(Duration::from_secs(10), listener.accept())
+        .await
+        .expect("the descendant should have connected")
+        .unwrap();
+    (conn, socket)
+}
+
+/// Fails unless the process holding `socket` dies soon.
+async fn assert_descendant_dies(mut socket: tokio::net::TcpStream) {
+    use tokio::io::AsyncReadExt as _;
+    let mut byte = [0u8; 1];
+    let closed = tokio::time::timeout(Duration::from_secs(10), socket.read(&mut byte))
+        .await
+        .expect("the upstream's descendant process is still running");
+    assert!(matches!(closed, Ok(0) | Err(_)), "the descendant never writes: {closed:?}");
+}
+
+#[tokio::test]
+async fn closing_a_stdio_upstream_kills_its_whole_process_tree() {
+    let (conn, socket) = upstream_with_descendant().await;
+    assert_eq!(conn.list_tools().await.unwrap().len(), 3, "the upstream itself works");
+    conn.close().await;
+    assert_descendant_dies(socket).await;
+}
+
+#[tokio::test]
+async fn dropping_a_stdio_upstream_kills_its_whole_process_tree() {
+    let (conn, socket) = upstream_with_descendant().await;
+    drop(conn);
+    assert_descendant_dies(socket).await;
+}
+
 #[tokio::test]
 async fn invoker_over_stdio_stateless_and_stateful() {
     for mode in [SessionMode::Stateless, SessionMode::Stateful] {
