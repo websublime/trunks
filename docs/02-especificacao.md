@@ -409,7 +409,7 @@ Precedência: flag > env var > `.env` (via `dotenvy`) > default. Todas as env va
 | `--mode` / `TRUNKS_MODE` | `development` \| `enterprise`; case-insensitive | `development` |
 | `--host` / `TRUNKS_BIND_HOST` | bind host; vazio = todas as interfaces | todas |
 | `--port` / `TRUNKS_PORT` | bind port | 8080 |
-| `--database-url` / `TRUNKS_DATABASE_URL` (ou `TRUNKS_DATABASE_URL_FILE`) | `sqlite://<path>` ou `postgres://user:pass@host:port/db` | `sqlite://trunks.db` |
+| `--database-url` / `TRUNKS_DATABASE_URL` (`TRUNKS_DATABASE_URL_FILE` — ler o URL de um ficheiro, para secrets — **ainda não implementado**) | `sqlite://<path>` ou `postgres://user:pass@host:port/db` | `sqlite://trunks.db` |
 | `TRUNKS_METRICS_ENABLED` | `true/false` — liga `/metrics` | on em enterprise, off em dev |
 | `TRUNKS_UPSTREAM_INIT_TIMEOUT_SEC` | inteiro ≥1; timeout do `initialize` upstream | 30 |
 | `TRUNKS_SESSION_IDLE_TIMEOUT_SEC` | ≥0; 0 = sem expiração | 0 |
@@ -435,7 +435,8 @@ Métricas (`prometheus-client`), labels `mcp_server_name`, `tool_name`, `outcome
 
 - `trunks_tool_calls_total` (counter) — também usado para prompts (`tool_name` recebe o nome do prompt).
 - `trunks_tool_call_latency_seconds` (histogram, buckets `0.005 … 30`).
-- **Novos:** `trunks_upstream_sessions_active{mcp_server_name,mode}` (gauge), `trunks_upstream_connect_errors_total{mcp_server_name}`, `trunks_build_info{version}`.
+- `trunks_build_info{version}`.
+- **Ainda não implementados:** `trunks_upstream_sessions_active{mcp_server_name,mode}` (gauge) e `trunks_upstream_connect_errors_total{mcp_server_name}`; o estado dos upstreams está em `GET /api/dashboard/diagnostics`.
 
 Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gateway`, `trunks::sessions`, `upstream.stderr`). Nunca logar tokens, `Authorization`, `env` de stdio, `client_secret`. Access log via `tower_http::trace` ao nível `info`. Em `debug`/`trace` as dependências (rmcp, sqlx) registam argumentos e resultados de tools e o texto das queries — nunca credenciais (verificado por `log_hygiene`), mas pode ser conteúdo sensível do utilizador: não usar esses níveis em produção sem necessidade. Quando o filtro activa `debug` ou `trace`, o arranque emite um `warn` a dizê-lo.
 
@@ -469,9 +470,11 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 ## 13. Build e release
 
 - `cargo-dist` (D9) para `x86_64/aarch64 × linux-gnu/linux-musl/darwin/windows`; archives `trunks-<target>.tar.xz` (zip em Windows), `sha256.sum`, instaladores `shell`/`powershell`. Sem Homebrew (D9).
-- Docker: `Dockerfile` multi-stage (`rust:1.xx-bookworm` → `gcr.io/distroless/cc`, ou musl → `distroless/static`); `stdio.Dockerfile` sobre `ghcr.io/astral-sh/uv:debian` + Node 20 (idêntico). Tags `vX`, `latest`, `vX-stdio`, `latest-stdio`; multi-arch.
-- Versão via `env!("CARGO_PKG_VERSION")` + `git describe` injectado por `build.rs` (`vergen`); `/metadata` devolve `v`-prefixed.
-- `docker-compose.yaml` e `docker-compose.prod.yaml` mantêm-se com a imagem trocada.
+- Docker: um `Dockerfile` multi-stage com dois targets sobre o mesmo stage de build (`rust:1.97-bookworm`, compilador o de `rust-toolchain.toml`): `distroless` (por defeito; `gcr.io/distroless/cc-debian12:nonroot`) e `stdio` (`ghcr.io/astral-sh/uv:python3.13-bookworm-slim` + Node.js 24 — o Node 20 previsto chegou ao fim de vida —, utilizador `trunks`, uid 10001). Nenhuma corre como root; dados em `/data`; `TRUNKS_DATABASE_URL=sqlite:///data/trunks.db` por defeito. Imagens `ghcr.io/websublime/trunks`, tags `vX.Y.Z`, `latest`, `vX.Y.Z-stdio`, `latest-stdio` (`latest*` só em releases finais), `linux/amd64` e `linux/arm64`.
+- Workflow `docker`: em PRs que tocam no `Dockerfile` (e a pedido) constrói os dois targets nas duas arquitecturas, em runners nativos, e faz um smoke test (versão, utilizador não-root, `/health`, API em development, paragem limpa com `SIGTERM`, `node`/`npx`/`uvx`/`python3` na `stdio`) sem publicar; em tags `vX.Y.Z*` faz o mesmo, publica por arquitectura e cria os manifestos multi-arquitectura.
+- Versão via `env!("CARGO_PKG_VERSION")`; `/metadata` devolve `v`-prefixed. (`git describe` injectado por `build.rs`/`vergen`: **ainda não implementado**.)
+- `docker-compose.yaml` (development, SQLite, imagem `-stdio`, porta em `127.0.0.1`) e `docker-compose.prod.yaml` (enterprise + PostgreSQL 16, variáveis obrigatórias a partir de `.env`; modelo em `.env.example`).
+- `CHANGELOG.md` (Keep a Changelog) e guia operacional em `08-operacao.md`.
 
 ## 14. Riscos técnicos e como se desriscam
 
