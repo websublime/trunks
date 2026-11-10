@@ -40,12 +40,14 @@ First public version. Everything below is new.
   with their own tokens and an allow-list of servers.
 - Teams and grants: a user or a team is granted the use of a server or a tool group.
   Users see nothing until something is granted to them.
-- MCP clients can belong to a user or a team and never reach more than their owner.
+- MCP clients can belong to a user or a team and never reach more than their owner;
+  deleting the owner deletes its clients.
 - Single sign-on with OpenID Connect (authorization code + PKCE). Users are created on
   first login; the administrator role and team memberships can follow a groups claim.
 - Browser sessions for the web application: `HttpOnly` cookie, same-origin check on every
   change, never accepted on the MCP endpoints.
-- What a caller may not use is neither listed nor distinguishable from what does not exist.
+- What a caller may not use is neither listed nor distinguishable from what does not exist,
+  in the REST API, the MCP endpoints and the dashboard views alike.
 
 ### Operations
 

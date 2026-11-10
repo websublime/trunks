@@ -91,9 +91,8 @@ A user can use everything granted to them directly plus everything granted to th
 | `member` | use what the team was granted |
 | `maintainer` | the same, and add or remove team members and manage the team's MCP clients |
 
-Deleting a team removes its memberships and grants. **Its MCP clients are kept, without an
-owner**: from then on only their own allow list limits them (see below). Review or delete them
-when deleting a team.
+Deleting a team removes its memberships, its grants and **the MCP clients it owns**; their
+tokens stop working at once.
 
 ## MCP clients
 

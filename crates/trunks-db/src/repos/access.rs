@@ -72,7 +72,8 @@ pub async fn update_team(db: &Db, name: &str, description: &str) -> Result<bool>
     Ok(n > 0)
 }
 
-/// Team, memberships and grants in one transaction.
+/// The team and everything that only makes sense with it: memberships, grants to the team
+/// and the MCP clients it owns. One transaction.
 pub async fn delete_team(db: &Db, name: &str) -> Result<bool> {
     with_pool!(db, |p| {
         let mut tx = p.begin().await?;
@@ -83,12 +84,19 @@ pub async fn delete_team(db: &Db, name: &str) -> Result<bool> {
             return Ok(false);
         };
         let result: Result<()> = async {
-            sqlx::query("DELETE FROM team_members WHERE team_id = $1").bind(id).execute(&mut *tx).await?;
-            sqlx::query("DELETE FROM access_grants WHERE subject_kind = 'team' AND subject_id = $1")
+            sqlx::query("DELETE FROM team_members WHERE team_id = $1")
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
-            sqlx::query("UPDATE mcp_clients SET owner_kind = NULL, owner_id = NULL WHERE owner_kind = 'team' AND owner_id = $1")
+            sqlx::query(
+                "DELETE FROM access_grants WHERE subject_kind = 'team' AND subject_id = $1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            // Not detached: without its owner a client would be limited by its allow list
+            // alone, which can be more than the team could reach.
+            sqlx::query("DELETE FROM mcp_clients WHERE owner_kind = 'team' AND owner_id = $1")
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
