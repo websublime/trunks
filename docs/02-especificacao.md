@@ -388,19 +388,19 @@ Web app: `trunks-dashboard` embebe o bundle de `web/app` (Lit + `line://ui`) com
 - `register` com fluxo OAuth: primeira tentativa sem redirect; ao receber 400 `upstream_oauth_required` arranca um listener loopback `127.0.0.1:0` em `/oauth/callback`, repete o pedido com esse redirect → 202 → imprime a URL de autorização e tenta abrir o browser (`open`/`xdg-open`/`rundll32`, best-effort) → espera o callback até `expires_at` → `complete` → saída normal de registo. Flags: `--oauth-redirect-uri`, `--oauth-client-id`, `--oauth-client-secret`, `--oauth-scope`*. Com `--oauth-redirect-uri` próprio o CLI imprime a URL e o `session_id` e termina com erro "registration pending"; completa-se com `trunks oauth-complete <session_id> --code … --state …`.
 - `invoke`: grava `image_*/audio_*/resource_*` no CWD com a mesma tabela de extensões por MIME.
 - Valores que podem começar por `-` são aceites como valores (`allow_hyphen_values`): o token de `login`, `--access-token`, `--bearer-token`, `--oauth-client-secret`, `--oidc-client-secret`, `--code`/`--state` e `--arg` (`--arg -y`). Os tokens gerados são base64url: um em cada 64 começa por `-`, e o próprio CLI manda correr `trunks login <token>`.
-- Saída: texto plano. `--output json` em v1.x.
+- Saída: texto plano. `--output json` em v1.x. Os comandos escrevem com `outln!` (`trunks/src/out.rs`), não com `println!` (lint `clippy::print_stdout`): se o leitor fechar o pipe (`trunks list tools | head`) o comando termina em silêncio com exit 0, em vez de entrar em pânico.
 
 ## 8. `start` — arranque e shutdown
 
 1. `dotenvy::dotenv().ok()`.
 2. Resolver `ServerMode` (`--mode` > `TRUNKS_MODE` > `development`); `TRUNKS_METRICS_ENABLED` (default on em enterprise).
-3. `tracing` init (`TRUNKS_LOG`, fallback `RUST_LOG`, default `info`; JSON em enterprise).
+3. `tracing` init (`TRUNKS_LOG`, fallback `RUST_LOG`, default `info`). Formato pelo modo: texto em development; em enterprise **JSON, um objecto por linha** (`{timestamp, level, fields{message, …}, target, span?, spans?}`) e nada mais no stdout — sem banner, e o lembrete de `init-server` e o endereço de escuta são eventos de log.
 4. DB: `--database-url` > `TRUNKS_DATABASE_URL` (ou `TRUNKS_DATABASE_URL_FILE`) > `sqlite://trunks.db`. SQLite: `?mode=rwc`, `journal_mode=WAL`, `busy_timeout=5000`. **Migrações** `sqlx::migrate!` com um directório por dialecto (`migrations/sqlite`, `migrations/postgres`): baseline idempotente sobre o schema legacy + `normalize_legacy` (detalhe no doc interno de migração).
-5. Verificar modo: se inicializado noutro modo → erro `"server is already initialized in X mode, cannot start in Y mode"`. Se não inicializado e dev → `init(dev)` silencioso; enterprise → imprimir lembrete `init-server`.
+5. Verificar modo: se inicializado noutro modo → erro `"server is already initialized in X mode, cannot start in Y mode"`. Se não inicializado e dev → `init(dev)` silencioso; enterprise → lembrete `init-server` (evento `WARN`).
 6. Validação: se existir `mcp_servers.transport = 'sse'` **enabled** → erro de arranque com instruções (D4), ou warn + skip se `TRUNKS_IGNORE_SSE_SERVERS=1`.
 7. Construir `Catalog` (falha de parse de `input_schema` → **erro de arranque**; `annotations` inválidas → warn + vazio).
 8. `SessionManager`, `GatewayState`, métricas, router.
-9. Bind `--host`/`TRUNKS_BIND_HOST` (vazio = todas as interfaces) + `--port`/`TRUNKS_PORT`/8080. Banner + `"Trunks HTTP server listening on {addr}"`.
+9. Bind `--host`/`TRUNKS_BIND_HOST` + `--port`/`TRUNKS_PORT`/8080. Sem host indicado: `127.0.0.1` em development (não tem autenticação), todas as interfaces em enterprise; host vazio = todas as interfaces. Development num endereço não-loopback arranca com um `WARN`. Development: banner + `"Trunks HTTP server listening on {addr}"`; enterprise: evento `INFO` `Trunks HTTP server listening` com `addr`.
 10. `SIGINT`/`SIGTERM` → `trunks_api::serve` deixa de aceitar ligações e dá 10 s aos pedidos em curso (streams MCP ainda abertos ao fim desse tempo são cortados, com um `warn`) → `sessions.shutdown().await` → `"server stopped"`, exit 0.
 
 ## 9. Configuração — tabela completa
@@ -410,7 +410,7 @@ Precedência: flag > env var > `.env` (via `dotenvy`) > default. Todas as env va
 | Flag / env | Semântica | Default |
 |---|---|---|
 | `--mode` / `TRUNKS_MODE` | `development` \| `enterprise`; case-insensitive | `development` |
-| `--host` / `TRUNKS_BIND_HOST` | bind host; vazio = todas as interfaces | todas |
+| `--host` / `TRUNKS_BIND_HOST` | bind host; vazio = todas as interfaces | `127.0.0.1` em development, todas em enterprise (as imagens de contentor fixam `0.0.0.0`) |
 | `--port` / `TRUNKS_PORT` | bind port | 8080 |
 | `--database-url` / `TRUNKS_DATABASE_URL` | `sqlite://<path>` ou `postgres://user:pass@host:port/db` | `sqlite://trunks.db` |
 | `--database-url-file` / `TRUNKS_DATABASE_URL_FILE` | caminho de um ficheiro com o URL da base de dados (para secrets montados como ficheiro); quando definido **prevalece** sobre o URL; espaços e mudanças de linha à volta são ignorados; ficheiro ilegível ou vazio é erro de arranque (a mensagem indica o ficheiro, nunca o conteúdo) | unset |
@@ -472,7 +472,7 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 | API | `trunks-api/tests` com `axum::Router` + SQLite `:memory:` | cada rota, códigos, shapes, middleware; login OIDC contra um IdP falso (`trunks_testing::oidc::FakeIdp`: discovery, JWKS, token, userinfo) incl. rotação de chaves, `aud`/assinatura/expiração/`nonce`/algoritmo simétrico rejeitados, `state` de uso único, CSRF por `Origin` |
 | E2E / conformidade | `crates/trunks/tests/conformance` (target `conformance`): o binário real (`trunks start`) numa base de dados vazia, conduzido de fora pelo CLI, pela REST API e por um cliente MCP, com o `fake-upstream` (stdio e HTTP) | matriz **{development, enterprise} × {sqlite, postgres}**, uma célula por teste. *Development*: registo, listagens, invocação por CLI/REST/MCP, enable/disable, tool groups e o seu endpoint MCP, persistência após reinício, deregisto. *Enterprise*: inicialização, 401/403, users, teams e grants (nada sem grant; equipa; grant directo; revoke), MCP clients (allow-list; cliente com dono nunca vê mais do que o dono), sessão de browser (cookie, origem, nunca em MCP), persistência após reinício (tokens, grants, sessões), logout e cascatas de eliminação. As células PostgreSQL precisam de `TRUNKS_TEST_PG_URL` (servidor onde possam criar bases de dados) e são saltadas sem ela — excepto com `TRUNKS_TEST_REQUIRE_PG`, como no job `test-postgres` do CI, onde falham. OAuth de upstream e OIDC estão cobertos nos testes de API (`trunks-api/tests`), não nesta matriz; a web app entra com a 6c. **Sem harness diferencial**: não há binário legacy disponível para comparar; a referência é esta especificação |
 | Snapshot | `insta` | saída do CLI (`list`, `usage`, `get group`) |
-| CLI | `trunks/src/cli_parsing.rs`, `trunks/src/cli_reference.rs` | valores começados por `-` (tokens, segredos, argumentos de um comando stdio) são valores e as flags à volta continuam a ser flags; `docs/guide/reference/cli.md` é igual ao `--help` de todos os comandos (regenerar: `TRUNKS_UPDATE_DOCS=1 cargo test -p trunks cli_reference`), sem valores de variáveis de ambiente |
+| CLI | `trunks/src/cli_parsing.rs`, `trunks/src/cli_reference.rs`, `trunks/tests/server_process.rs` | valores começados por `-` (tokens, segredos, argumentos de um comando stdio) são valores e as flags à volta continuam a ser flags; `docs/guide/reference/cli.md` é igual ao `--help` de todos os comandos (regenerar: `TRUNKS_UPDATE_DOCS=1 cargo test -p trunks cli_reference`), sem valores de variáveis de ambiente; no processo real: endereço de escuta e formato de log por omissão em cada modo (JSON em enterprise, linha a linha), e um pipe de saída fechado não é erro |
 
 ## 13. Build e release
 

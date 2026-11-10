@@ -40,6 +40,9 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && chown trunks:trunks /data
 COPY --from=build /out/trunks /usr/local/bin/trunks
 ENV TRUNKS_DATABASE_URL=sqlite:///data/trunks.db
+# Inside a container the port mapping decides who can reach the server, so listen on every
+# interface (development mode otherwise listens on the container's own loopback only).
+ENV TRUNKS_BIND_HOST=0.0.0.0
 USER trunks
 WORKDIR /data
 VOLUME ["/data"]
@@ -52,6 +55,9 @@ FROM gcr.io/distroless/cc-debian12:nonroot AS distroless
 COPY --from=build /out/trunks /usr/local/bin/trunks
 COPY --from=build --chown=65532:65532 /out/data /data
 ENV TRUNKS_DATABASE_URL=sqlite:///data/trunks.db
+# Inside a container the port mapping decides who can reach the server, so listen on every
+# interface (development mode otherwise listens on the container's own loopback only).
+ENV TRUNKS_BIND_HOST=0.0.0.0
 WORKDIR /data
 VOLUME ["/data"]
 EXPOSE 8080

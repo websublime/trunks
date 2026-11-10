@@ -55,9 +55,11 @@ docker run -d --name trunks -p 127.0.0.1:8080:8080 -v trunks-data:/data \
 | Initialization | automatic | `trunks init-server`, once |
 | `/metrics` | off by default | on by default |
 
-**Development mode has no access control at all.** Use it only on `127.0.0.1`
-(`--host 127.0.0.1`; by default Trunks listens on every interface) or on a network where
-everyone who can reach it is trusted.
+**Development mode has no access control at all.** By default it listens on `127.0.0.1`
+only. Give it another address (`--host`) only on a network where everyone who can reach it is
+trusted; it warns at start-up when you do. Enterprise mode listens on every interface by
+default. The container images listen on every interface in both modes, since there the port
+mapping decides who can reach the server.
 
 The mode is recorded in the database at initialization. Starting later with a different
 `TRUNKS_MODE` is a start-up error, not a conversion.
@@ -101,7 +103,7 @@ Trunks speaks plain HTTP. In production it sits behind a reverse proxy that term
 
 | Setting | What it is | In production |
 |---|---|---|
-| `TRUNKS_BIND_HOST` / `TRUNKS_PORT` | where it listens (empty host = all interfaces) | an internal interface, or the port published to the proxy only |
+| `TRUNKS_BIND_HOST` / `TRUNKS_PORT` | where it listens (enterprise mode: every interface unless set) | an internal interface, or the port published to the proxy only |
 | `TRUNKS_PUBLIC_URL` | the address as seen from outside | `https://trunks.example.com`; decides the cookie's `Secure` flag, the origin accepted for changes made with a browser session, and the single sign-on redirect |
 | `TRUNKS_ALLOWED_HOSTS` | `Host` headers accepted on the MCP endpoints (protection against DNS rebinding); loopback names only by default | the public host name; any other `Host` gets 403 |
 
@@ -144,7 +146,9 @@ disables); 30 s for the handshake with an upstream (`TRUNKS_UPSTREAM_INIT_TIMEOU
   - `trunks_upstream_connect_errors_total{mcp_server_name}`: failed connections to upstreams;
     when it climbs, an upstream is down;
   - `trunks_build_info{version}`: the running version.
-- Logs go to stdout and stderr. `TRUNKS_LOG` is a `tracing` filter (`info` by default):
+- Logs go to stdout: text in development mode; in enterprise mode JSON, one object per line
+  and nothing else, ready for a log collector. `TRUNKS_LOG` is a `tracing` filter (`info` by
+  default):
   - one line per response, with method, path (without the query string), status, latency and
     the kind of caller;
   - `TRUNKS_LOG=info,upstream.stderr=off` silences the upstreams' stderr;

@@ -1,5 +1,6 @@
 //! `trunks create|update|delete user|mcp-client` (enterprise mode, admin).
 
+use crate::out::outln;
 use clap::{Args as ClapArgs, Subcommand};
 use snafu::{ResultExt, Whatever};
 use trunks_client::Client;
@@ -74,12 +75,12 @@ fn allow_list_notes(allow_list: &[String], owned: bool) {
     let wildcard = allow_list.iter().any(|a| a == "*");
     match (wildcard, allow_list.is_empty(), owned) {
         (true, _, true) | (_, true, true) => {
-            println!("Note: on an owned client this means everything its owner can access.");
+            outln!("Note: on an owned client this means everything its owner can access.");
         }
-        (true, _, false) => println!(
+        (true, _, false) => outln!(
             "Warning: this client can access every registered server (allow list contains \"*\")."
         ),
-        (_, true, false) => println!(
+        (_, true, false) => outln!(
             "Note: the allow list is empty; this client cannot reach any server until it is updated."
         ),
         _ => {}
@@ -102,10 +103,10 @@ pub async fn create(client: &Client, registry: &str, args: CreateArgs) -> Result
                 req.access_token = access_token;
             }
             let u = client.create_user(&req).await.whatever_context("creating user")?;
-            println!("User {} created.", u.username);
-            println!("Access token: {}", u.access_token);
-            println!("Log in with: trunks login {}", u.access_token);
-            println!("This token is shown only once.");
+            outln!("User {} created.", u.username);
+            outln!("Access token: {}", u.access_token);
+            outln!("Log in with: trunks login {}", u.access_token);
+            outln!("This token is shown only once.");
         }
         CreateWhat::McpClient { name, allow, description, access_token, owner, conf } => {
             let mut req = match &conf {
@@ -128,14 +129,14 @@ pub async fn create(client: &Client, registry: &str, args: CreateArgs) -> Result
                 req.owner = Some(parse_owner(o)?);
             }
             let c = client.create_client(&req).await.whatever_context("creating MCP client")?;
-            println!("MCP client {} created.", c.name);
+            outln!("MCP client {} created.", c.name);
             if let Some(o) = &c.owner {
-                println!("Owner: {} {}", o.kind, o.name);
+                outln!("Owner: {} {}", o.kind, o.name);
             }
-            println!("Access token: {}", c.access_token.unwrap_or_default());
-            println!("Allowed servers: {}", list_or_none(&c.allow_list));
+            outln!("Access token: {}", c.access_token.unwrap_or_default());
+            outln!("Allowed servers: {}", list_or_none(&c.allow_list));
             allow_list_notes(&c.allow_list, c.owner.is_some());
-            println!("This token is shown only once.");
+            outln!("This token is shown only once.");
         }
     }
     Ok(())
@@ -187,9 +188,9 @@ pub async fn update(client: &Client, args: UpdateArgs) -> Result<(), Whatever> {
                 .update_user(&name, &UpdateUserRequest { access_token })
                 .await
                 .whatever_context("updating user")?;
-            println!("Token of user {} rotated.", u.username);
-            println!("Access token: {}", u.access_token);
-            println!("This token is shown only once.");
+            outln!("Token of user {} rotated.", u.username);
+            outln!("Access token: {}", u.access_token);
+            outln!("This token is shown only once.");
         }
         UpdateWhat::McpClient { name, allow, description, access_token, rotate_token } => {
             if allow.is_none() && description.is_none() && access_token.is_none() && !rotate_token {
@@ -205,12 +206,12 @@ pub async fn update(client: &Client, args: UpdateArgs) -> Result<(), Whatever> {
             };
             let c =
                 client.update_client(&name, &req).await.whatever_context("updating MCP client")?;
-            println!("MCP client {} updated.", c.name);
-            println!("Allowed servers: {}", list_or_none(&c.allow_list));
+            outln!("MCP client {} updated.", c.name);
+            outln!("Allowed servers: {}", list_or_none(&c.allow_list));
             allow_list_notes(&c.allow_list, c.owner.is_some());
             if let Some(t) = c.access_token {
-                println!("Access token: {t}");
-                println!("This token is shown only once.");
+                outln!("Access token: {t}");
+                outln!("This token is shown only once.");
             }
         }
     }
@@ -237,11 +238,11 @@ pub async fn delete(client: &Client, args: DeleteArgs) -> Result<(), Whatever> {
         DeleteWhat::Team(a) => return super::access::delete_team(client, a).await,
         DeleteWhat::User { name } => {
             client.delete_user(&name).await.whatever_context("deleting user")?;
-            println!("User {name} deleted.");
+            outln!("User {name} deleted.");
         }
         DeleteWhat::McpClient { name } => {
             client.delete_client(&name).await.whatever_context("deleting MCP client")?;
-            println!("MCP client {name} deleted.");
+            outln!("MCP client {name} deleted.");
         }
     }
     Ok(())

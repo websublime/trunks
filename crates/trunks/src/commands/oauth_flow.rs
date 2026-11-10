@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+use crate::out::outln;
 use axum::extract::Query;
 use axum::response::Html;
 use axum::routing::get;
@@ -107,15 +108,15 @@ pub async fn finish(
     listener: &mut Listener,
     auth: &AuthorizationRequired,
 ) -> Result<McpServer, Whatever> {
-    println!("The upstream requires OAuth authorization.");
-    println!(
+    outln!("The upstream requires OAuth authorization.");
+    outln!(
         "Opening your browser; if nothing happens, open this URL yourself:\n\n  {}\n",
         auth.authorization_url
     );
     open_browser(&auth.authorization_url);
     let remaining =
         (auth.expires_at - chrono::Utc::now()).to_std().unwrap_or(Duration::from_mins(1));
-    println!(
+    outln!(
         "Waiting for the authorization callback (session {} expires at {})…",
         auth.session_id,
         auth.expires_at.format("%H:%M:%S UTC")

@@ -7,6 +7,7 @@ use trunks_client::Client;
 use trunks_types::ServerMode;
 
 use crate::config::{self, CliConfig};
+use crate::out::outln;
 
 #[derive(Debug, ClapArgs)]
 pub struct LoginArgs {
@@ -25,9 +26,9 @@ pub async fn init_server(client: &Client, registry: &str) -> Result<(), Whatever
         registry_url: Some(registry.to_owned()),
         access_token: Some(token.clone()),
     })?;
-    println!("{}", res.status);
-    println!("Admin access token: {token}");
-    println!("Saved to {} — this token is shown only once.", path.display());
+    outln!("{}", res.status);
+    outln!("Admin access token: {token}");
+    outln!("Saved to {} — this token is shown only once.", path.display());
     Ok(())
 }
 
@@ -41,7 +42,7 @@ pub async fn login(client: &Client, registry: &str, args: LoginArgs) -> Result<(
         registry_url: Some(registry.to_owned()),
         access_token: Some(args.token),
     })?;
-    println!("You are now logged in as {} ({})", user.username, user.role);
-    println!("Credentials saved to {}", path.display());
+    outln!("You are now logged in as {} ({})", user.username, user.role);
+    outln!("Credentials saved to {}", path.display());
     Ok(())
 }

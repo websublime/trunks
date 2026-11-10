@@ -2,8 +2,8 @@
 
 This walks through a local, single-user setup: start Trunks, register one MCP server, call a
 tool through the gateway, and connect a client. It uses development mode, which has **no
-authentication**; keep it on `127.0.0.1`. For a shared server, continue with
-[Enterprise mode](enterprise.md) afterwards.
+authentication** and is therefore reachable from your own machine only. For a shared server,
+continue with [Enterprise mode](enterprise.md) afterwards.
 
 ## 1. Install
 
@@ -29,14 +29,14 @@ There is one binary. `trunks start` is the server; every other command is the ma
 ## 2. Start the server
 
 ```bash
-trunks start --host 127.0.0.1
+trunks start
 ```
 
 ```text
 Trunks HTTP server listening on 127.0.0.1:8080
 ```
 
-Without `--host`, Trunks listens on every network interface. The data goes to `trunks.db`
+In development mode Trunks listens on this machine only. The data goes to `trunks.db`
 (SQLite) in the current directory.
 
 ## 3. Register an MCP server
