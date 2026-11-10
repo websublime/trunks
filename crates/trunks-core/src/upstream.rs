@@ -17,6 +17,7 @@ use rmcp::service::{RoleClient, RunningService, ServiceError};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{ConfigureCommandExt as _, StreamableHttpClientTransport, TokioChildProcess};
 use secrecy::ExposeSecret as _;
+use tokio::io::AsyncReadExt as _;
 use trunks_types::ServerName;
 
 use crate::domain::UpstreamConfig;
@@ -76,6 +77,99 @@ fn init_error(server: &ServerName, e: &rmcp::service::ClientInitializeError) -> 
         return Error::UpstreamAuthRequired { server: server.to_string(), www_authenticate };
     }
     upstream_err(server, format!("initialize failed: {e}"))
+}
+
+/// Longest stderr line of an upstream process that is logged; the rest of the line is dropped.
+const STDERR_LINE_LIMIT: usize = 4096;
+/// `env` values shorter than this are not treated as secrets when redacting stderr: blanking
+/// every `1` or `on` would make the output useless without protecting anything.
+const MIN_REDACTED_LEN: usize = 4;
+const REDACTED: &str = "[redacted]";
+
+/// What must never be repeated from an upstream's stderr: every configured `env` value, and
+/// each line of a multi-line one (a PEM key is printed line by line). Longest first, so a
+/// value is replaced before any shorter value it contains.
+fn redaction_needles(env: &BTreeMap<String, secrecy::SecretString>) -> Vec<String> {
+    let mut needles: Vec<String> = env
+        .values()
+        .flat_map(|v| {
+            let value = v.expose_secret();
+            std::iter::once(value).chain(value.lines()).map(str::trim).map(str::to_owned)
+        })
+        .filter(|n| n.len() >= MIN_REDACTED_LEN)
+        .collect();
+    needles.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+    needles.dedup();
+    needles
+}
+
+/// The first `limit` bytes of `line` with every needle replaced. A needle that starts before
+/// the limit is replaced whole, so cutting the line never leaves part of a secret behind.
+fn redact(line: &str, needles: &[String], limit: usize) -> String {
+    let mut out = String::with_capacity(line.len().min(limit));
+    let mut rest = line;
+    while line.len() - rest.len() < limit {
+        if let Some(needle) = needles.iter().find(|n| rest.starts_with(n.as_str())) {
+            out.push_str(REDACTED);
+            rest = &rest[needle.len()..];
+        } else if let Some(c) = rest.chars().next() {
+            out.push(c);
+            rest = &rest[c.len_utf8()..];
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+/// Logs one stderr line of `server` (target `upstream.stderr`), redacted, bounded and with
+/// control characters escaped so that an upstream cannot forge log lines or terminal output.
+fn log_stderr_line(server: &ServerName, bytes: &[u8], needles: &[String]) {
+    let text = String::from_utf8_lossy(bytes);
+    let text = text.trim_end();
+    if text.is_empty() {
+        return;
+    }
+    let line = redact(text, needles, STDERR_LINE_LIMIT);
+    tracing::info!(target: "upstream.stderr", server = %server, "{}", line.escape_debug());
+}
+
+/// Forwards the stderr of an upstream process to the log, line by line, until it closes.
+async fn forward_stderr(
+    server: ServerName,
+    mut stderr: tokio::process::ChildStderr,
+    needles: Vec<String>,
+) {
+    // Enough to hold a secret that starts right before the limit.
+    let capacity = STDERR_LINE_LIMIT + needles.first().map_or(0, String::len);
+    let mut line: Vec<u8> = Vec::new();
+    let mut dropping = false; // inside the tail of an over-long line
+    let mut chunk = [0u8; 1024];
+    loop {
+        let read = match stderr.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
+        };
+        for &byte in &chunk[..read] {
+            if byte == b'\n' {
+                if !dropping {
+                    log_stderr_line(&server, &line, &needles);
+                }
+                line.clear();
+                dropping = false;
+            } else if !dropping {
+                line.push(byte);
+                if line.len() >= capacity {
+                    log_stderr_line(&server, &line, &needles);
+                    line.clear();
+                    dropping = true;
+                }
+            }
+        }
+    }
+    if !dropping {
+        log_stderr_line(&server, &line, &needles);
+    }
 }
 
 /// A live, initialized MCP client session with one upstream.
@@ -173,10 +267,16 @@ impl UpstreamConn {
                 c.env(k, v.expose_secret());
             }
             c.kill_on_drop(true);
-            c.stderr(std::process::Stdio::null());
         });
-        let transport = TokioChildProcess::new(cmd)
+        // stderr is piped and logged by us. Left to rmcp's default it would be inherited:
+        // the upstream would write straight into this process's own stderr, unredacted.
+        let (transport, stderr) = TokioChildProcess::builder(cmd)
+            .stderr(std::process::Stdio::piped())
+            .spawn()
             .map_err(|e| upstream_err(server, format!("failed to spawn '{command}': {e}")))?;
+        if let Some(stderr) = stderr {
+            tokio::spawn(forward_stderr(server.clone(), stderr, redaction_needles(env)));
+        }
         let peer =
             ().serve(transport)
                 .await
@@ -306,5 +406,54 @@ impl UpstreamConn {
 
     fn map(&self, e: &ServiceError) -> Error {
         call_error(&self.server, e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, secrecy::SecretString> {
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), secrecy::SecretString::from(*v))).collect()
+    }
+
+    #[test]
+    fn stderr_redaction() {
+        let needles = redaction_needles(&env(&[
+            ("TOKEN", "tok-12345"),
+            ("LONGER", "tok-12345-and-more"),
+            ("FLAG", "1"),
+            ("MODE", "on"),
+            ("PEM", "-----BEGIN KEY-----\nMIIBVQ==\n-----END KEY-----"),
+        ]));
+        assert!(needles.iter().all(|n| n.len() >= MIN_REDACTED_LEN), "{needles:?}");
+        let cases = [
+            ("nothing secret here", "nothing secret here"),
+            ("token=tok-12345 done", "token=[redacted] done"),
+            ("tok-12345tok-12345", "[redacted][redacted]"),
+            // the longer value wins over the shorter one it contains
+            ("x tok-12345-and-more y", "x [redacted] y"),
+            // short values are left alone
+            ("retry 1 of 3, mode on", "retry 1 of 3, mode on"),
+            // a multi-line value is recognised line by line
+            ("key line: MIIBVQ==", "key line: [redacted]"),
+            ("-----BEGIN KEY-----", "[redacted]"),
+            ("ünïcödé tok-12345 ✓", "ünïcödé [redacted] ✓"),
+        ];
+        for (line, expected) in cases {
+            assert_eq!(redact(line, &needles, STDERR_LINE_LIMIT), expected, "{line}");
+        }
+    }
+
+    #[test]
+    fn cutting_a_line_never_leaves_part_of_a_secret() {
+        let needles = redaction_needles(&env(&[("TOKEN", "tok-12345")]));
+        // the limit falls in the middle of the secret: it is replaced whole
+        assert_eq!(redact("abc tok-12345 tail", &needles, 7), "abc [redacted]");
+        // the limit falls before the secret starts: nothing of it is emitted
+        assert_eq!(redact("abc tok-12345 tail", &needles, 4), "abc ");
+        // multi-byte characters are never split
+        assert_eq!(redact("ééé", &needles, 3), "éé");
+        assert_eq!(redact("", &needles, 10), "");
     }
 }

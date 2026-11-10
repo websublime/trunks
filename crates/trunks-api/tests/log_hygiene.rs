@@ -152,7 +152,9 @@ async fn no_credential_reaches_the_logs_at_any_level() {
         &admin_token,
         json!({
             "name": "local", "transport": "stdio", "description": "",
-            "command": trunks_testing::fake_upstream_bin(), "env": {"API_KEY": STDIO_ENV},
+            "command": trunks_testing::fake_upstream_bin(),
+            // the upstream prints the value of API_KEY to its stderr, which is logged
+            "env": {"API_KEY": STDIO_ENV, "FAKE_UPSTREAM_STDERR_ENV": "API_KEY"},
         }),
     )
     .await
@@ -246,6 +248,10 @@ async fn no_credential_reaches_the_logs_at_any_level() {
     assert!(logs.contains("principal=\"admin\""), "principal kind missing from the access log");
     assert!(logs.contains("principal=\"mcp_client\""));
     assert!(logs.contains("path=/auth/callback"));
+    assert!(
+        logs.lines().any(|l| l.contains("upstream.stderr") && l.contains("[redacted]")),
+        "the stdio upstream's stderr should be logged, redacted"
+    );
 
     let secrets: BTreeMap<&str, &str> = BTreeMap::from([
         ("admin token", admin_token.as_str()),

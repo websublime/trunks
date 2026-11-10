@@ -246,16 +246,14 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         runtime,
     };
 
-    let app = trunks_api::router_with(state, trunks_api::HttpOptions { request_timeout });
+    let http = trunks_api::HttpOptions { request_timeout, ..trunks_api::HttpOptions::default() };
+    let app = trunks_api::router_with(state, http);
     let listener = TcpListener::bind(addr).await.whatever_context("failed to bind")?;
 
     println!("{}", super::super::BANNER);
     println!("Trunks HTTP server listening on {addr}");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .whatever_context("server error")?;
+    trunks_api::serve(listener, app, http, shutdown_signal()).await;
     sessions.shutdown().await;
     tracing::info!("server stopped");
     Ok(())
@@ -361,6 +359,12 @@ fn init_tracing() {
         .or_else(|_| EnvFilter::try_from_default_env())
         .unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
+    if tracing::level_enabled!(tracing::Level::DEBUG) {
+        tracing::warn!(
+            "verbose logging is enabled: at debug/trace level the MCP and database libraries \
+             record tool arguments, tool results and SQL text; do not leave it on in production"
+        );
+    }
 }
 
 async fn shutdown_signal() {

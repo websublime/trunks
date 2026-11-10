@@ -36,6 +36,10 @@ struct App {
 }
 
 async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
+    app_with(fixture, metrics, trunks_api::HttpOptions::default()).await
+}
+
+async fn app_with(fixture: Option<&str>, metrics: bool, http: trunks_api::HttpOptions) -> App {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db.sqlite");
     if let Some(f) = fixture {
@@ -94,7 +98,7 @@ async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
             metrics_enabled: false,
         },
     };
-    App { router: trunks_api::router(state), _dir: dir }
+    App { router: trunks_api::router_with(state, http), _dir: dir }
 }
 
 async fn call(
@@ -212,6 +216,47 @@ async fn oversized_request_bodies_are_refused() {
     assert_ne!(res.status(), StatusCode::PAYLOAD_TOO_LARGE, "under the limit is read");
     let res = app.router.clone().oneshot(mcp(trunks_api::BODY_LIMIT + 1)).await.unwrap();
     assert_eq!(res.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn a_stalled_mcp_request_body_is_abandoned() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let http = trunks_api::HttpOptions {
+        body_idle_timeout: std::time::Duration::from_millis(300),
+        ..trunks_api::HttpOptions::default()
+    };
+    let app = app_with(None, false, http).await;
+    let (s, _) =
+        call(&app.router, "POST", "/init", None, Some(serde_json::json!({"mode": "development"})))
+            .await;
+    assert_eq!(s, StatusCode::OK);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(trunks_api::serve(listener, app.router.clone(), http, std::future::pending()));
+
+    // announce 200 bytes, send 10, then go quiet
+    let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+    client
+        .write_all(
+            b"POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n\
+              Accept: application/json, text/event-stream\r\nContent-Length: 200\r\n\
+              Connection: close\r\n\r\n{\"jsonrpc\"",
+        )
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let mut response = Vec::new();
+    tokio::time::timeout(std::time::Duration::from_secs(10), client.read_to_end(&mut response))
+        .await
+        .expect("the server must not wait for the rest of the body forever")
+        .unwrap();
+    assert!(started.elapsed() >= std::time::Duration::from_millis(250), "gave up too early");
+    let head = String::from_utf8_lossy(&response);
+    assert!(
+        head.starts_with("HTTP/1.1 4") || head.starts_with("HTTP/1.1 5"),
+        "expected an error response, got: {head:?}"
+    );
 }
 
 #[tokio::test]

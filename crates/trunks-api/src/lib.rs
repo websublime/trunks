@@ -8,6 +8,7 @@ pub mod error;
 pub mod mcp;
 pub mod middleware;
 pub mod routes;
+mod serve;
 pub mod state;
 
 use std::time::Duration;
@@ -18,6 +19,7 @@ use axum::middleware::from_fn;
 use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 
+pub use serve::serve;
 pub use state::AppState;
 
 /// Largest request body accepted, on the REST and on the MCP endpoints (413 beyond it).
@@ -32,11 +34,24 @@ pub struct HttpOptions {
     /// Upper bound for one REST request; `None` = unbounded. The MCP endpoints are streams
     /// and are bounded per upstream call instead (`ConnectOptions::call_timeout`).
     pub request_timeout: Option<Duration>,
+    /// How long a client may take to send a complete request head (also the idle time
+    /// allowed between two requests on a kept-alive HTTP/1 connection). Used by [`serve`].
+    pub header_read_timeout: Duration,
+    /// Longest pause tolerated while a client sends an MCP request body. REST bodies are
+    /// covered by `request_timeout`.
+    pub body_idle_timeout: Duration,
+    /// How long open connections get to finish once shutdown starts. Used by [`serve`].
+    pub shutdown_grace: Duration,
 }
 
 impl Default for HttpOptions {
     fn default() -> Self {
-        Self { request_timeout: Some(Duration::from_mins(5)) }
+        Self {
+            request_timeout: Some(Duration::from_mins(5)),
+            header_read_timeout: Duration::from_secs(30),
+            body_idle_timeout: Duration::from_secs(30),
+            shutdown_grace: Duration::from_secs(10),
+        }
     }
 }
 
@@ -99,7 +114,10 @@ pub fn router_with(state: AppState, opts: HttpOptions) -> Router {
         rest = rest.layer(from_fn(move |req, next| middleware::deadline(limit, req, next)));
     }
 
-    let mut app = rest.merge(mcp::router(&state));
+    let mut app = rest
+        .merge(mcp::router(&state).route_layer(tower_http::timeout::RequestBodyTimeoutLayer::new(
+            opts.body_idle_timeout,
+        )));
     if state.metrics.is_some() {
         app = app.route("/metrics", get(routes::public::metrics));
     }

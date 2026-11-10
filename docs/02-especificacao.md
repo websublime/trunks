@@ -236,7 +236,7 @@ pub struct UpstreamConn { peer: rmcp::service::RunningService<RoleClient, ()>, l
 | Transporte | Implementação |
 |---|---|
 | `streamable_http` | `rmcp::transport::StreamableHttpClientTransport` com `reqwest::Client` por servidor: headers configurados + `Authorization: Bearer` (se não houver `Authorization` explícito). Se existir `upstream_oauth_tokens` para o servidor → wrapper `AuthClient` do módulo `rmcp::transport::auth` com `CredentialStore` persistente em DB (refresh automático). `initialize` com `tokio::time::timeout(init_timeout)`; erro mapeado para mensagem que menciona `TRUNKS_UPSTREAM_INIT_TIMEOUT_SEC`; `ConnectionRefused` + URL loopback → hint `host.docker.internal`. |
-| `stdio` | `rmcp::transport::TokioChildProcess` sobre `tokio::process::Command`: `env` configurado **sobre** o ambiente herdado do processo (documentar; opção `inherit_env: false` no roadmap), `kill_on_drop(true)`, `process_group(0)` em Unix para matar descendentes. Stderr capturado por task que faz `tracing::warn!(target="upstream.stderr", server=%name, "{chunk}")`. `clientInfo = {name: "trunks upstream client", version}`. |
+| `stdio` | `rmcp::transport::TokioChildProcess` sobre `tokio::process::Command`: `env` configurado **sobre** o ambiente herdado do processo (documentar; opção `inherit_env: false` no roadmap), `kill_on_drop(true)`, `process_group(0)` em Unix para matar descendentes. Stderr **nunca herdado**: é ligado por pipe e uma task regista cada linha em `INFO` com `target = "upstream.stderr"` e `server` (o stderr é o canal normal de log de um servidor stdio, não um sinal de erro). Antes de registar: todos os valores de `env` configurados com ≥ 4 caracteres (e cada linha de um valor multi-linha) são substituídos por `[redacted]`; a linha é cortada aos 4096 bytes sem nunca deixar parte de um segredo; caracteres de controlo são escapados. Silenciar: `TRUNKS_LOG=info,upstream.stderr=off`. `clientInfo = {name: "trunks upstream client", version}`. |
 | `sse` | **[BREAKING, D4=(a)]** não implementado. `connect` devolve `UnsupportedTransport`. |
 
 Depois do `initialize`, cada pedido a um upstream (`tools/call`, `prompts/get`, `resources/read` e as listagens da descoberta) tem um limite `call_timeout` = `TRUNKS_REQUEST_TIMEOUT_SEC` (0 = sem limite). Ao expirar, o pedido é abandonado e devolve `UpstreamTimeout` — `upstream '{server}' did not answer within {n}s (TRUNKS_REQUEST_TIMEOUT_SEC)`: 504 em REST, erro JSON-RPC interno em MCP. Conta como erro de ligação: fica nas notas de saúde do upstream e uma sessão stateful é fechada e reaberta na chamada seguinte.
@@ -364,6 +364,7 @@ Middleware:
 - Prazo REST: `TRUNKS_REQUEST_TIMEOUT_SEC` + 5 s de folga (para um upstream que atinja o mesmo limite ser reportado como tal), leitura do corpo incluída → 504. **Não** se aplica aos endpoints MCP, que são streams; aí o limite é por pedido ao upstream (§4.7).
 - Host/Origin: `StreamableHttpServerConfig.allowed_hosts` por defeito é loopback-only (protecção DNS rebinding). Configurável via `TRUNKS_ALLOWED_HOSTS` (lista separada por vírgulas; `*` desliga).
 - Body limit: 4 MiB (`trunks_api::BODY_LIMIT`) em REST (`DefaultBodyLimit`) e em MCP (`max_request_body_bytes` do rmcp, fixado explicitamente); acima → 413.
+- Clientes lentos (`trunks_api::serve`, o accept loop próprio sobre `hyper-util`): o cabeçalho completo de um pedido tem de chegar em 30 s — contados desde a ligação, incluindo a fase em que ainda não se sabe se é HTTP/1 ou HTTP/2 —, senão a ligação é fechada (o mesmo prazo fecha ligações keep-alive paradas); o corpo de um pedido MCP não pode ficar mais de 30 s sem dados (em REST o corpo é coberto pelo prazo do pedido); ligações HTTP/2 são verificadas com ping de 30 em 30 s.
 
 Web app: `trunks-dashboard` embebe o bundle de `web/app` (Lit + `line://ui`) com `rust-embed`; build via `cargo xtask build-dashboard` (`npm ci && npm run build`, copia para `crates/trunks-dashboard/dist`). Rotas `/`, `/index.html`, `/assets/*`; sem SPA fallback em v1. `summarize_server_config` nunca emite `bearer_token`, valores de `env`, header `authorization` (case-insensitive), userinfo/query/fragment de URLs; `command` truncado a 80 chars.
 
@@ -398,7 +399,7 @@ Web app: `trunks-dashboard` embebe o bundle de `web/app` (Lit + `line://ui`) com
 7. Construir `Catalog` (falha de parse de `input_schema` → **erro de arranque**; `annotations` inválidas → warn + vazio).
 8. `SessionManager`, `GatewayState`, métricas, router.
 9. Bind `--host`/`TRUNKS_BIND_HOST` (vazio = todas as interfaces) + `--port`/`TRUNKS_PORT`/8080. Banner + `"Trunks HTTP server listening on {addr}"`.
-10. `SIGINT`/`SIGTERM` → `cancel.cancel()` → `sessions.shutdown().await` → `axum::serve(...).with_graceful_shutdown` com timeout 10 s.
+10. `SIGINT`/`SIGTERM` → `trunks_api::serve` deixa de aceitar ligações e dá 10 s aos pedidos em curso (streams MCP ainda abertos ao fim desse tempo são cortados, com um `warn`) → `sessions.shutdown().await` → `"server stopped"`, exit 0.
 
 ## 9. Configuração — tabela completa
 
@@ -437,7 +438,7 @@ Métricas (`prometheus-client`), labels `mcp_server_name`, `tool_name`, `outcome
 - `trunks_tool_call_latency_seconds` (histogram, buckets `0.005 … 30`).
 - **Novos:** `trunks_upstream_sessions_active{mcp_server_name,mode}` (gauge), `trunks_upstream_connect_errors_total{mcp_server_name}`, `trunks_build_info{version}`.
 
-Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gateway`, `trunks::sessions`, `upstream.stderr`). Nunca logar tokens, `Authorization`, `env` de stdio, `client_secret`. Access log via `tower_http::trace` ao nível `info`. Em `debug`/`trace` as dependências (rmcp, sqlx) registam argumentos e resultados de tools e o texto das queries — nunca credenciais (verificado por `log_hygiene`), mas pode ser conteúdo sensível do utilizador: não usar esses níveis em produção sem necessidade.
+Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gateway`, `trunks::sessions`, `upstream.stderr`). Nunca logar tokens, `Authorization`, `env` de stdio, `client_secret`. Access log via `tower_http::trace` ao nível `info`. Em `debug`/`trace` as dependências (rmcp, sqlx) registam argumentos e resultados de tools e o texto das queries — nunca credenciais (verificado por `log_hygiene`), mas pode ser conteúdo sensível do utilizador: não usar esses níveis em produção sem necessidade. Quando o filtro activa `debug` ou `trace`, o arranque emite um `warn` a dizê-lo.
 
 ## 11. Segurança
 
@@ -446,8 +447,8 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 - Fail-closed por tipo: `Principal` ausente ⇒ vazio/negado.
 - Sessões de browser: cookie `HttpOnly; SameSite=Lax` (+`Secure` em https), só o SHA-256 em DB, verificação de `Origin` em mutações autenticadas por cookie, nunca aceites nos endpoints MCP. ID tokens só com algoritmos assimétricos; `state` de uso único; `client_secret`, `code_verifier`, ID/access tokens do IdP em `SecretString` e nunca em logs.
 - DNS rebinding: `allowed_hosts` loopback por defeito.
-- Processos stdio: process group próprio, `kill_on_drop`, stderr limitado a 4 KiB por chunk, sem herdar stdin.
-- Limites: corpo ≤ 4 MiB, prazo por pedido (`TRUNKS_REQUEST_TIMEOUT_SEC`). Sem limite próprio para a leitura dos headers HTTP (slowloris): em produção, atrás de um reverse proxy.
+- Processos stdio: process group próprio, `kill_on_drop`, sem herdar stdin; stderr por pipe, registado com os valores de `env` redigidos, 4 KiB por linha e caracteres de controlo escapados (§4.7) — nunca escrito directamente no stderr do Trunks.
+- Limites: corpo ≤ 4 MiB, prazo por pedido (`TRUNKS_REQUEST_TIMEOUT_SEC`). Clientes lentos: 30 s para o cabeçalho, 30 s de pausa máxima no corpo MCP (§5).
 - `cargo deny` (advisories, licenças permissivas), `cargo audit` no CI.
 
 ## 12. Testes
@@ -455,6 +456,8 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 | Nível | Onde | Cobertura |
 |---|---|---|
 | Fuzz | `fuzz/` (cargo-fuzz, nightly; workspace próprio) + `trunks-types/tests/names_random.rs` | invariantes dos parsers de nomes e URIs (`trunks-types/tests/invariants`, partilhadas): nunca entram em pânico, parse ∘ print = identidade, qualquer nome/URI não vazio sobrevive ao round-trip. O teste com seed corre em todo o CI; o workflow `fuzz` corre 60 s por target nos PRs que tocam nos parsers e 1 h por target a pedido |
+| Processo | `trunks/tests/server_process.rs` | o binário real: o stderr de um upstream stdio que imprime um segredo aparece no output do servidor redigido e sem caracteres de controlo; `SIGTERM` termina com exit 0 |
+| Accept loop | `trunks-api/tests/serve.rs` | cabeçalho que nunca acaba, ligação muda e prefácio HTTP/2 incompleto são desligados; shutdown deixa acabar pedidos em curso e não espera para lá do prazo |
 | Higiene de logs | `trunks-api/tests/log_hygiene.rs` | sessão enterprise completa com todos os níveis de log ligados (incl. `TRACE` de dependências): nenhum token, bearer, header, `env`, cookie de sessão, `code` ou `state` aparece no output |
 | Unit | cada crate | parsing de nomes/URIs (tabela de casos §4.1), resolução de grupos, filtragem por allow-list, classificação de erros, token gen/validate, `summarize_server_config` |
 | Integration (core) | `trunks-core/tests` com stores em memória + upstream `rmcp` em processo | registo/deregisto/enable cascata, stateless vs stateful, invalidação, OAuth com `wiremock` como authorization server |
