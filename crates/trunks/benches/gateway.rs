@@ -214,9 +214,10 @@ async fn main() {
     assert_eq!(status, 200, "{init}");
     let admin = init["admin_access_token"].as_str().unwrap().to_owned();
     register_catalog(&ent, Some(&admin), &fake).await;
-    for (name, allow, token) in
-        [("everything", "*", "bench-client-everything"), ("one", "bulk0", "bench-client-one-server")]
-    {
+    for (name, allow, token) in [
+        ("everything", "*", "bench-client-everything"),
+        ("one", "bulk0", "bench-client-one-server"),
+    ] {
         let (status, body) = ent
             .rest(
                 Method::POST,
