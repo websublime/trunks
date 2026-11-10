@@ -214,9 +214,9 @@ pub async fn get(client: &Client, registry: &str, args: GetArgs) -> Result<(), W
 pub struct OAuthCompleteArgs {
     /// Session id printed by `trunks register`
     session_id: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     code: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     state: String,
 }
 
