@@ -161,3 +161,12 @@ pub struct OAuthPendingRow {
     pub expires_at: DateTime<Utc>,
     pub initiated_by: Option<String>,
 }
+
+#[derive(Debug, Clone, FromRow)]
+pub struct LoginStateRow {
+    pub state: String,
+    pub nonce: String,
+    pub code_verifier: String,
+    pub return_to: String,
+    pub expires_at: DateTime<Utc>,
+}

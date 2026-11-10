@@ -17,6 +17,7 @@ use trunks_core::dashboard::RuntimeInfo;
 use trunks_core::gateway::GatewayState;
 use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
+use trunks_core::login::LoginService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
 use trunks_core::registry::RegistryService;
@@ -66,7 +67,15 @@ async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
             ConnectOptions::default(),
         ),
         groups: GroupService::new(store.clone(), gateway.catalog.clone()),
-        registry: store,
+        registry: store.clone(),
+        login: LoginService::new(
+            None,
+            identity.clone(),
+            store.clone(),
+            store.clone(),
+            std::time::Duration::from_hours(1),
+        ),
+        public_url: None,
         identity,
         mode,
         metrics,

@@ -8,15 +8,15 @@ use trunks_core::domain::{
     UpstreamConfig, UserRecord,
 };
 use trunks_core::ports::{
-    AccessStore, ConfigStore, Discovered, GrantRecord, IdentityStore, NewServer, OAuthCredentials,
-    OAuthStore, PendingAuthorization, RegistrySnapshot, RegistryStore, ServerConfig,
-    TeamMemberRecord, TeamRecord, ToolGroupSpec,
+    AccessStore, ConfigStore, Discovered, GrantRecord, IdentityStore, LoginState, NewServer,
+    OAuthCredentials, OAuthStore, PendingAuthorization, RegistrySnapshot, RegistryStore,
+    ServerConfig, SessionStore, TeamMemberRecord, TeamRecord, ToolGroupSpec,
 };
 use trunks_types::{GroupName, ResourceUri, Role, ServerMode, ServerName, SessionMode, Transport};
 
 use crate::repos::oauth::{self, OAuthPendingWrite, OAuthTokenWrite};
 use crate::repos::registry::{NewPromptRow, NewResourceRow, NewServerRow, NewToolRow};
-use crate::repos::{access, catalog, config, groups, identity, registry};
+use crate::repos::{access, catalog, config, groups, identity, registry, sessions};
 use crate::rows::{
     BareGrantRow, GrantRow, McpClientRow, OAuthPendingRow, OAuthTokenRow, PromptRow, ResourceRow,
     ServerRow, TeamMemberRow, TeamRow, ToolGroupRow, ToolRow, UserRow,
@@ -702,5 +702,91 @@ impl AccessStore for Store {
             (target.0.as_str(), target.1),
         )
         .await?)
+    }
+}
+
+#[async_trait]
+impl SessionStore for Store {
+    async fn user_by_oidc(
+        &self,
+        issuer: &str,
+        subject: &str,
+    ) -> trunks_core::Result<Option<UserRecord>> {
+        sessions::user_by_oidc(&self.0, issuer, subject)
+            .await?
+            .map(UserRecord::try_from)
+            .transpose()
+    }
+
+    async fn create_oidc_user(
+        &self,
+        username: &str,
+        role: Role,
+        token: &str,
+        issuer: &str,
+        subject: &str,
+    ) -> trunks_core::Result<UserRecord> {
+        let row =
+            sessions::create_oidc_user(&self.0, username, role.as_str(), token, issuer, subject)
+                .await?;
+        UserRecord::try_from(row)
+    }
+
+    async fn set_user_role(&self, user_id: i64, role: Role) -> trunks_core::Result<()> {
+        Ok(sessions::set_user_role(&self.0, user_id, role.as_str()).await?)
+    }
+
+    async fn sync_oidc_memberships(
+        &self,
+        user_id: i64,
+        team_ids: &[i64],
+    ) -> trunks_core::Result<()> {
+        Ok(sessions::sync_oidc_memberships(&self.0, user_id, team_ids).await?)
+    }
+
+    async fn create_session(
+        &self,
+        id_hash: &str,
+        user_id: i64,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> trunks_core::Result<()> {
+        Ok(sessions::create_session(&self.0, id_hash, user_id, expires_at).await?)
+    }
+
+    async fn session_user(&self, id_hash: &str) -> trunks_core::Result<Option<UserRecord>> {
+        sessions::session_user(&self.0, id_hash).await?.map(UserRecord::try_from).transpose()
+    }
+
+    async fn delete_session(&self, id_hash: &str) -> trunks_core::Result<()> {
+        Ok(sessions::delete_session(&self.0, id_hash).await?)
+    }
+
+    async fn purge_expired_sessions(&self) -> trunks_core::Result<u64> {
+        Ok(sessions::purge_expired(&self.0).await?)
+    }
+
+    async fn save_login_state(&self, st: &LoginState) -> trunks_core::Result<()> {
+        Ok(sessions::save_login_state(
+            &self.0,
+            &st.state,
+            &st.nonce,
+            st.code_verifier.expose_secret(),
+            &st.return_to,
+            st.expires_at,
+        )
+        .await?)
+    }
+
+    async fn take_login_state(&self, state: &str) -> trunks_core::Result<Option<LoginState>> {
+        let now = chrono::Utc::now();
+        Ok(sessions::take_login_state(&self.0, state).await?.filter(|r| r.expires_at > now).map(
+            |r| LoginState {
+                state: r.state,
+                nonce: r.nonce,
+                code_verifier: SecretString::from(r.code_verifier),
+                return_to: r.return_to,
+                expires_at: r.expires_at,
+            },
+        ))
     }
 }

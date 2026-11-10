@@ -16,6 +16,7 @@ use trunks_core::dashboard::RuntimeInfo;
 use trunks_core::gateway::GatewayState;
 use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
+use trunks_core::login::LoginService;
 use trunks_core::mode::ModeService;
 use trunks_core::ports::OAuthStore as _;
 use trunks_core::registry::RegistryService;
@@ -60,6 +61,14 @@ async fn boot() -> (Client, Arc<Store>, tempfile::TempDir) {
         ),
         groups: GroupService::new(store.clone(), catalog),
         registry: store.clone(),
+        login: LoginService::new(
+            None,
+            identity.clone(),
+            store.clone(),
+            store.clone(),
+            std::time::Duration::from_hours(1),
+        ),
+        public_url: None,
         identity,
         mode: mode_svc,
         metrics: None,

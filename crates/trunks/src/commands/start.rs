@@ -18,8 +18,10 @@ use trunks_core::dashboard::RuntimeInfo;
 use trunks_core::gateway::GatewayState;
 use trunks_core::groups::GroupService;
 use trunks_core::identity::IdentityService;
+use trunks_core::login::LoginService;
 use trunks_core::metrics::Metrics;
 use trunks_core::mode::ModeService;
+use trunks_core::oidc::{OidcClient, OidcConfig};
 use trunks_core::registry::RegistryService;
 use trunks_core::sessions::{SessionManager, SessionOptions};
 use trunks_core::upstream::ConnectOptions;
@@ -60,6 +62,94 @@ pub struct Args {
     /// Host header values accepted on the MCP endpoints (comma-separated; "*" disables the check)
     #[arg(long, env = "TRUNKS_ALLOWED_HOSTS", value_delimiter = ',')]
     allowed_hosts: Vec<String>,
+
+    /// Public base URL of this server (e.g. https://trunks.example.com). Required for OIDC;
+    /// also decides the `Secure` cookie flag and the same-origin check.
+    #[arg(long, env = "TRUNKS_PUBLIC_URL")]
+    public_url: Option<String>,
+
+    /// Browser session lifetime, in hours
+    #[arg(long, env = "TRUNKS_SESSION_TTL_HOURS", default_value_t = 12)]
+    session_ttl_hours: u64,
+
+    /// OIDC issuer URL; setting it enables "Sign in with SSO" (enterprise mode)
+    #[arg(long, env = "TRUNKS_OIDC_ISSUER")]
+    oidc_issuer: Option<String>,
+
+    #[arg(long, env = "TRUNKS_OIDC_CLIENT_ID")]
+    oidc_client_id: Option<String>,
+
+    /// Prefer the environment variable over the flag: flags are visible in process listings
+    #[arg(long, env = "TRUNKS_OIDC_CLIENT_SECRET", hide_env_values = true)]
+    oidc_client_secret: Option<String>,
+
+    /// Scopes requested in addition to `openid` (comma-separated)
+    #[arg(
+        long,
+        env = "TRUNKS_OIDC_SCOPES",
+        value_delimiter = ',',
+        default_value = "profile,email"
+    )]
+    oidc_scopes: Vec<String>,
+
+    /// Claim (ID token or userinfo) holding the user's groups
+    #[arg(long, env = "TRUNKS_OIDC_GROUPS_CLAIM", default_value = "groups")]
+    oidc_groups_claim: String,
+
+    /// Group that makes a user an administrator (role is re-synced on every login)
+    #[arg(long, env = "TRUNKS_OIDC_ADMIN_GROUP")]
+    oidc_admin_group: Option<String>,
+
+    /// Sync team memberships from the groups claim on login
+    #[arg(long, env = "TRUNKS_OIDC_SYNC_TEAMS", default_value_t = false)]
+    oidc_sync_teams: bool,
+
+    /// Only groups with this prefix become teams (the prefix is stripped)
+    #[arg(long, env = "TRUNKS_OIDC_TEAM_PREFIX", default_value = "")]
+    oidc_team_prefix: String,
+}
+
+/// Builds the OIDC client when an issuer is configured.
+fn oidc_client(args: &Args) -> Result<Option<Arc<OidcClient>>, Whatever> {
+    let Some(issuer) = args.oidc_issuer.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let Some(client_id) = args.oidc_client_id.as_deref().filter(|s| !s.is_empty()) else {
+        snafu::whatever!("TRUNKS_OIDC_CLIENT_ID is required when TRUNKS_OIDC_ISSUER is set");
+    };
+    let Some(public_url) =
+        args.public_url.as_deref().map(|u| u.trim_end_matches('/')).filter(|s| !s.is_empty())
+    else {
+        snafu::whatever!(
+            "TRUNKS_PUBLIC_URL is required when TRUNKS_OIDC_ISSUER is set (the IdP redirects to <public url>/auth/callback)"
+        );
+    };
+    if args.mode != ServerMode::Enterprise {
+        tracing::warn!(
+            "OIDC is configured but the server runs in development mode, where no login is required"
+        );
+    }
+    let cfg = OidcConfig {
+        issuer: issuer.to_owned(),
+        client_id: client_id.to_owned(),
+        client_secret: args
+            .oidc_client_secret
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| secrecy::SecretString::from(s.to_owned())),
+        redirect_url: format!("{public_url}/auth/callback"),
+        scopes: args
+            .oidc_scopes
+            .iter()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        groups_claim: args.oidc_groups_claim.clone(),
+        admin_group: args.oidc_admin_group.clone().filter(|s| !s.is_empty()),
+        sync_teams: args.oidc_sync_teams,
+        team_prefix: args.oidc_team_prefix.clone(),
+    };
+    Ok(Some(OidcClient::new(cfg).whatever_context("configuring OIDC")?))
 }
 
 fn parse_mode(s: &str) -> Result<ServerMode, String> {
@@ -132,20 +222,8 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         format!("{host}:{}", args.port).parse().whatever_context("invalid bind address")?;
     let allowed_hosts: Vec<String> =
         args.allowed_hosts.iter().filter(|h| !h.is_empty()).cloned().collect();
-    let runtime = RuntimeInfo {
-        mode: args.mode,
-        version: trunks_types::version::version(),
-        started_at: chrono::Utc::now(),
-        database_backend: db.backend().to_owned(),
-        database_url: trunks_db::redact(&args.database_url),
-        migrations_latest: Some(applied.latest),
-        bind_host: host.to_owned(),
-        bind_port: args.port,
-        allowed_hosts: allowed_hosts.clone(),
-        upstream_init_timeout_sec: args.upstream_init_timeout_sec.max(1),
-        session_idle_timeout_sec: args.session_idle_timeout_sec,
-        metrics_enabled: metrics.is_some(),
-    };
+    let runtime = runtime_info(&args, &db, applied.latest, host, &allowed_hosts, metrics.is_some());
+    let login = build_login(&args, &identity, &store).await?;
     let state = AppState {
         catalog: catalog.clone(),
         gateway: gateway.clone(),
@@ -153,6 +231,8 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         registry_service,
         groups: GroupService::new(store.clone(), catalog.clone()),
         registry: store.clone(),
+        login,
+        public_url: args.public_url.clone().map(|u| u.trim_end_matches('/').to_owned()),
         identity,
         mode,
         metrics,
@@ -172,6 +252,55 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
     sessions.shutdown().await;
     tracing::info!("server stopped");
     Ok(())
+}
+
+/// Facts about this process for the dashboard's diagnostics.
+fn runtime_info(
+    args: &Args,
+    db: &Db,
+    migrations_latest: i64,
+    host: &str,
+    allowed_hosts: &[String],
+    metrics_enabled: bool,
+) -> RuntimeInfo {
+    RuntimeInfo {
+        mode: args.mode,
+        version: trunks_types::version::version(),
+        started_at: chrono::Utc::now(),
+        database_backend: db.backend().to_owned(),
+        database_url: trunks_db::redact(&args.database_url),
+        migrations_latest: Some(migrations_latest),
+        bind_host: host.to_owned(),
+        bind_port: args.port,
+        allowed_hosts: allowed_hosts.to_vec(),
+        upstream_init_timeout_sec: args.upstream_init_timeout_sec.max(1),
+        session_idle_timeout_sec: args.session_idle_timeout_sec,
+        metrics_enabled,
+    }
+}
+
+/// Browser logins: OIDC when configured, token → session always. Purges stale sessions.
+async fn build_login(
+    args: &Args,
+    identity: &IdentityService,
+    store: &Arc<Store>,
+) -> Result<LoginService, Whatever> {
+    let login = LoginService::new(
+        oidc_client(args)?,
+        identity.clone(),
+        store.clone(),
+        store.clone(),
+        std::time::Duration::from_secs(args.session_ttl_hours.max(1) * 3600),
+    );
+    if login.oidc_enabled() {
+        tracing::info!(issuer = ?args.oidc_issuer, "OIDC login enabled");
+    }
+    match login.purge_expired().await {
+        Ok(n) if n > 0 => tracing::info!(count = n, "purged expired sessions and login states"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "could not purge expired sessions"),
+    }
+    Ok(login)
 }
 
 /// Refuses to start in a mode other than the one the database was initialized in;

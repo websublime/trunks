@@ -8,10 +8,11 @@ to a single Streamable HTTP endpoint with unified discovery, tool groups, access
 control and metrics.
 
 Built in Rust: one small binary, instant start-up, no runtime to babysit. v1
-delivers the gateway, registry, CLI and a `line://ui` web app; the roadmap adds
-OIDC, organisations and teams, and declarative configuration. See `docs/`.
+delivers the gateway, registry, CLI, teams with per-resource grants, single sign-on
+(OIDC) for people and a `line://ui` web app; the roadmap adds OIDC for MCP clients,
+organisations and declarative configuration. See `docs/`.
 
-> Status: **pre-alpha** — Phase 0 (foundations) of `docs/03-plano.md`.
+> Status: **pre-alpha** — Phase 6 (access model and web app) of `docs/03-plano.md`.
 
 ## Documentation
 

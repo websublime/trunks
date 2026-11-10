@@ -210,19 +210,27 @@ impl IdentityService {
             .filter(|t| !t.is_empty())
             .ok_or_else(|| Error::Unauthorized { reason: messages::MISSING_ACCESS_TOKEN.into() })?;
         match self.store.user_by_token(token).await? {
-            Some(u) => {
-                let access = self.access_of_user(&u).await?;
-                let teams = self.access.teams_of_user(u.id).await?;
-                Ok(UserPrincipal::User {
-                    user: Arc::new(u),
-                    access: Arc::new(access),
-                    teams: Arc::new(teams),
-                })
-            }
+            Some(u) => self.principal_of(u).await,
             None => Err(Error::Unauthorized {
                 reason: format!("{}: no user matches this token", messages::INVALID_ACCESS_TOKEN),
             }),
         }
+    }
+
+    /// The REST principal of an already authenticated user (token or session), with the
+    /// access set and team memberships resolved now.
+    pub async fn principal_of(&self, user: UserRecord) -> Result<UserPrincipal> {
+        let access = self.access_of_user(&user).await?;
+        let teams = self.access.teams_of_user(user.id).await?;
+        Ok(UserPrincipal::User {
+            user: Arc::new(user),
+            access: Arc::new(access),
+            teams: Arc::new(teams),
+        })
+    }
+
+    pub async fn user_by_name(&self, username: &str) -> Result<Option<UserRecord>> {
+        self.store.user_by_name(username).await
     }
 
     /// Resolves an MCP caller. User tokens are **not** accepted here.
@@ -290,12 +298,16 @@ impl IdentityService {
         Ok((user, token))
     }
 
-    /// Deletes a user; the admin cannot be deleted. Idempotent for unknown names.
+    /// Deletes a user. The **last** administrator cannot be deleted (no lock-out). Idempotent
+    /// for unknown names.
     pub async fn delete_user(&self, username: &str) -> Result<()> {
         if let Some(u) = self.store.user_by_name(username).await?
             && u.role == Role::Admin
         {
-            return Err(Error::invalid_input(messages::ADMIN_CANNOT_BE_DELETED));
+            let admins = self.store.users().await?.iter().filter(|x| x.role == Role::Admin).count();
+            if admins <= 1 {
+                return Err(Error::invalid_input(messages::ADMIN_CANNOT_BE_DELETED));
+            }
         }
         self.store.delete_user(username).await?;
         Ok(())
