@@ -33,7 +33,9 @@ First public version. Everything below is new.
 ### Access control (enterprise mode)
 
 - Two modes: `development` (no authentication, for one person on one machine) and
-  `enterprise`.
+  `enterprise`. An enterprise server is initialized once with `trunks init-server`, which
+  hands out the administrator's token; a server can only be initialized in the mode it was
+  started in.
 - Users (`admin` or `user`) with access tokens for the REST API and the CLI; MCP clients
   with their own tokens and an allow-list of servers.
 - Teams and grants: a user or a team is granted the use of a server or a tool group.

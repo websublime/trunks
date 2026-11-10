@@ -50,6 +50,16 @@ pub async fn scenario(backend: Backend) {
     assert_eq!((status, body["error"].as_str()), (403, Some("server is not initialized")));
     let err = gw.cli(&["list", "servers"]).await.failure();
     assert!(err.contains("server is not initialized"), "{err}");
+    // Whoever reaches the server first cannot make it a development one (no authentication).
+    let (status, body) =
+        gw.rest(Method::POST, "/init", None, Some(json!({"mode": "development"}))).await;
+    assert_eq!(status, 400, "{body}");
+    assert!(
+        body["error"].as_str().is_some_and(|e| e.contains("started in enterprise mode")),
+        "{body}"
+    );
+    let (status, body) = gw.rest(Method::GET, "/api/v0/servers", None, None).await;
+    assert_eq!((status, body["error"].as_str()), (403, Some("server is not initialized")));
     let out = gw.cli(&["init-server"]).await.success();
     assert!(out.contains("Server initialized successfully"), "{out}");
     let admin = printed(&out, "Admin access token:");

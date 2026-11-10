@@ -23,6 +23,8 @@ pub struct ModeService {
     identity: IdentityService,
     tx: Arc<watch::Sender<Option<ServerConfig>>>,
     rx: watch::Receiver<Option<ServerConfig>>,
+    /// The mode the process was started in; `init` accepts no other.
+    started_as: Option<ServerMode>,
 }
 
 impl std::fmt::Debug for ModeService {
@@ -36,7 +38,16 @@ impl ModeService {
     pub async fn load(store: Arc<dyn ConfigStore>, identity: IdentityService) -> Result<Self> {
         let current = store.get().await?;
         let (tx, rx) = watch::channel(current);
-        Ok(Self { store, identity, tx: Arc::new(tx), rx })
+        Ok(Self { store, identity, tx: Arc::new(tx), rx, started_as: None })
+    }
+
+    /// Ties initialization to the mode the process was started in. Without this, whoever
+    /// reaches an uninitialized enterprise server could initialize it as a development one,
+    /// which has no authentication at all.
+    #[must_use]
+    pub fn started_as(mut self, mode: ServerMode) -> Self {
+        self.started_as = Some(mode);
+        self
     }
 
     /// `Some(mode)` once initialized.
@@ -46,11 +57,17 @@ impl ModeService {
     }
 
     /// Initializes the installation. Enterprise mode also creates the admin user and returns
-    /// its token exactly once. Already initialized → `InvalidInput("Server is already initialized")`.
+    /// its token exactly once. Already initialized → `InvalidInput("Server is already initialized")`;
+    /// a mode other than the one the process was started in → `InvalidInput`, nothing stored.
     pub async fn init(&self, mode: ServerMode) -> Result<InitOutcome> {
         if self.current().is_some() {
             return Err(Error::InvalidInput {
                 reason: messages::SERVER_ALREADY_INITIALIZED.into(),
+            });
+        }
+        if let Some(started) = self.started_as.filter(|started| *started != mode) {
+            return Err(Error::InvalidInput {
+                reason: messages::init_mode_mismatch(started, mode),
             });
         }
         let created = self.store.init(mode).await?;
