@@ -54,7 +54,6 @@ Conforme `03-plano.md`; a Fase 6 entrega a primeira versão da web app em `line:
 | Tokens hasheados | `access_token_hash` (SHA-256) em `users`/`mcp_clients`; migração in-place; `GET /clients` deixa de devolver o token (breaking documentado; flag de compat por 1 minor) | pré-requisito de qualquer história de segurança |
 | `trunks apply -d <dir>` | Reconciliação declarativa (inverso de `export`): servidores, grupos, clients, users; `--prune`; `--dry-run` com diff | GitOps |
 | Prompts e resources em grupos | `included_prompts`, `included_resources` no grupo; `Scope::Group` passa a filtrar os três | fecha a limitação de v1 |
-| Filtro de prompts/resources na listagem | Em enterprise, `list_prompts`/`list_resources` filtram pela allow-list (hoje só tools) | fecha a inconsistência herdada |
 | `--output json` no CLI | Todas as listagens e `get` | automação |
 | Audit log v0 | Evento por chamada MCP e por mutação REST: `who, what, target, outcome, latency`, em `tracing` com target `trunks.audit` + opcional tabela `audit_events` | base para v3 |
 | Multi-réplica | Invalidação do `Catalog` entre réplicas: `LISTEN/NOTIFY` em Postgres (ou polling com TTL em SQLite, que de qualquer forma é single-node) | desbloqueia HA em enterprise |

@@ -260,16 +260,13 @@ impl ServerHandler for GatewayHandler {
         let canonical = CanonicalName::parse(&req.name)
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
         let snap = self.state.catalog.load();
+        // A tool the caller may not use reads exactly like one that does not exist, so that
+        // the answer never reveals what is registered (the REST API does the same).
         if !self.in_scope(&snap, &canonical)
             || !snap.tools.get(&canonical).is_some_and(|t| t.enabled)
+            || !p.may_use_tool(&snap, &canonical)
         {
             return Err(ErrorData::invalid_params(format!("tool '{canonical}' not found"), None));
-        }
-        if !p.may_use_tool(&snap, &canonical) {
-            return Err(ErrorData::internal_error(
-                format!("not authorized to access MCP server {}", canonical.server()),
-                None,
-            ));
         }
         drop(snap);
         let result = Invoker(self.state.clone())
@@ -284,12 +281,16 @@ impl ServerHandler for GatewayHandler {
         _r: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> std::result::Result<ListPromptsResult, ErrorData> {
-        let Some(_p) = Self::principal(&ctx) else { return Ok(ListPromptsResult::default()) };
+        let Some(p) = Self::principal(&ctx) else { return Ok(ListPromptsResult::default()) };
         if matches!(self.scope, Scope::Group(_)) {
             return Ok(ListPromptsResult::default());
         }
         let snap = self.state.catalog.load();
-        let prompts = snap.enabled_prompts().map(|p| to_mcp_prompt(p)).collect();
+        let prompts = snap
+            .enabled_prompts()
+            .filter(|prompt| p.may_access(prompt.canonical.server()))
+            .map(|prompt| to_mcp_prompt(prompt))
+            .collect();
         Ok(ListPromptsResult { prompts, ..Default::default() })
     }
 
@@ -303,14 +304,8 @@ impl ServerHandler for GatewayHandler {
         };
         let canonical = CanonicalName::parse(&req.name)
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
-        if matches!(self.scope, Scope::Group(_)) {
+        if matches!(self.scope, Scope::Group(_)) || !p.may_access(canonical.server()) {
             return Err(ErrorData::invalid_params(format!("prompt '{canonical}' not found"), None));
-        }
-        if !p.may_access(canonical.server()) {
-            return Err(ErrorData::internal_error(
-                format!("not authorized to access MCP server {}", canonical.server()),
-                None,
-            ));
         }
         Invoker(self.state.clone())
             .get_prompt(&canonical, req.arguments)
@@ -324,12 +319,16 @@ impl ServerHandler for GatewayHandler {
         _r: Option<PaginatedRequestParams>,
         ctx: RequestContext<RoleServer>,
     ) -> std::result::Result<ListResourcesResult, ErrorData> {
-        let Some(_p) = Self::principal(&ctx) else { return Ok(ListResourcesResult::default()) };
+        let Some(p) = Self::principal(&ctx) else { return Ok(ListResourcesResult::default()) };
         if matches!(self.scope, Scope::Group(_)) {
             return Ok(ListResourcesResult::default());
         }
         let snap = self.state.catalog.load();
-        let resources = snap.enabled_resources().map(|r| to_mcp_resource(r)).collect();
+        let resources = snap
+            .enabled_resources()
+            .filter(|resource| p.may_access(resource.uri.server()))
+            .map(|resource| to_mcp_resource(resource))
+            .collect();
         Ok(ListResourcesResult { resources, ..Default::default() })
     }
 
@@ -343,14 +342,8 @@ impl ServerHandler for GatewayHandler {
         };
         let uri = ResourceUri::parse(&req.uri)
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
-        if matches!(self.scope, Scope::Group(_)) {
+        if matches!(self.scope, Scope::Group(_)) || !p.may_access(uri.server()) {
             return Err(ErrorData::invalid_params(format!("resource '{uri}' not found"), None));
-        }
-        if !p.may_access(uri.server()) {
-            return Err(ErrorData::internal_error(
-                format!("not authorized to access MCP server {}", uri.server()),
-                None,
-            ));
         }
         Invoker(self.state.clone())
             .read_resource(&uri)

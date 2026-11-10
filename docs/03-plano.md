@@ -127,7 +127,7 @@ Movido para `05-roadmap.md` (v1.x operabilidade, v2.0 OIDC, v2.x organizações 
 
 1. Tokens hasheados (`access_token_hash`, migração in-place, flag de compat para leitura dupla durante a transição).
 2. `trunks apply -d <dir>` — reconciliação declarativa (inverso de `export`).
-3. Prompts e resources em tool groups; filtragem de prompts/resources na listagem em enterprise.
+3. Prompts e resources em tool groups. (A filtragem de prompts/resources na listagem em enterprise foi antecipada para a v1: listagens e erros MCP deixaram de revelar o que está fora do alcance do cliente, como na REST API.)
 4. `--output json` no CLI.
 5. OTLP export; audit log estruturado por chamada (quem, que tool, outcome) — base para roadmap #4.
 6. Users não-admin poderem registar servidores/grupos próprios.
