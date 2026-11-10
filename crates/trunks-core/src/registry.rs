@@ -485,7 +485,8 @@ fn prompt_from(v: &Value) -> Option<NewPrompt> {
 }
 
 fn resource_from(server: &ServerName, v: &Value) -> Option<NewResource> {
-    let original = str_field(v, "uri")?;
+    // An empty URI cannot be exposed: `trunks://res/<server>/` does not parse back.
+    let original = str_field(v, "uri").filter(|uri| !uri.is_empty())?;
     Some(NewResource {
         uri: ResourceUri::new(server.clone(), original.clone()),
         original_uri: original,
@@ -495,4 +496,27 @@ fn resource_from(server: &ServerName, v: &Value) -> Option<NewResource> {
         annotations: opt_field(v, "annotations"),
         meta: opt_field(v, "_meta"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resources_without_a_usable_uri_are_skipped() {
+        let server = ServerName::parse("srv").unwrap();
+        let cases = [
+            (serde_json::json!({"uri": "mem://hello", "name": "hello"}), true),
+            (serde_json::json!({"uri": "", "name": "empty"}), false),
+            (serde_json::json!({"name": "missing"}), false),
+            (serde_json::json!({"uri": 7}), false),
+        ];
+        for (value, kept) in cases {
+            let resource = resource_from(&server, &value);
+            assert_eq!(resource.is_some(), kept, "{value}");
+            if let Some(r) = resource {
+                assert_eq!(ResourceUri::parse(&r.uri.to_string()).unwrap(), r.uri);
+            }
+        }
+    }
 }

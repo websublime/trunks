@@ -1,0 +1,35 @@
+# Coverage-guided fuzzing of the name and URI parsers (cargo-fuzz, nightly only):
+#
+#   cargo +nightly fuzz run canonical_name -- -max_total_time=3600
+#   cargo +nightly fuzz run resource_uri   -- -max_total_time=3600
+#
+# The properties checked are the ones in `crates/trunks-types/tests/invariants`.
+[package]
+name = "trunks-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+trunks-types = { path = "../crates/trunks-types" }
+
+# Its own workspace: it needs nightly and libFuzzer, which the main workspace must not.
+[workspace]
+
+[[bin]]
+name = "canonical_name"
+path = "fuzz_targets/canonical_name.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "resource_uri"
+path = "fuzz_targets/resource_uri.rs"
+test = false
+doc = false
+bench = false

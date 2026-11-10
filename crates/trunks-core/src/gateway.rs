@@ -164,8 +164,7 @@ impl Invoker {
                 started.elapsed().as_secs_f64(),
             );
         }
-        outcome
-            .map_err(|e| Error::Upstream { server: server.name.to_string(), reason: e.to_string() })
+        outcome.map_err(|e| crate::upstream::call_error(&server.name, &e))
     }
 
     pub async fn get_prompt(
@@ -192,8 +191,7 @@ impl Invoker {
                 started.elapsed().as_secs_f64(),
             );
         }
-        outcome
-            .map_err(|e| Error::Upstream { server: server.name.to_string(), reason: e.to_string() })
+        outcome.map_err(|e| crate::upstream::call_error(&server.name, &e))
     }
 
     pub async fn read_resource(&self, uri: &ResourceUri) -> Result<ReadResourceResult> {
@@ -209,7 +207,7 @@ impl Invoker {
         self.0.sessions.release(lease, outcome.as_ref().err()).await;
         outcome
             .map(|r| rewrite_contents(r, uri, &res.original_uri))
-            .map_err(|e| Error::Upstream { server: server.name.to_string(), reason: e.to_string() })
+            .map_err(|e| crate::upstream::call_error(&server.name, &e))
     }
 
     /// The server a canonical/resource entry belongs to — for authorization before any call.

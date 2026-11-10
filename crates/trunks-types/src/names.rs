@@ -148,6 +148,8 @@ pub struct ResourceUri {
 }
 
 impl ResourceUri {
+    /// `original` must not be empty: the resulting URI would have no resource segment and
+    /// [`ResourceUri::parse`] rejects it.
     #[must_use]
     pub fn new(server: ServerName, original: impl Into<String>) -> Self {
         Self { server, original: original.into() }

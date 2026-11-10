@@ -52,6 +52,8 @@ impl McpMounts {
     fn service(gateway: &Arc<GatewayState>, opts: &McpOptions, scope: Scope) -> McpService {
         let mut config = StreamableHttpServerConfig::default();
         config.legacy_session_mode = true;
+        // rmcp's own default today; pinned here because the limit is part of our contract.
+        config.max_request_body_bytes = crate::BODY_LIMIT;
         if opts.allowed_hosts.iter().any(|h| h == "*") {
             config.allowed_hosts = vec![];
         } else if !opts.allowed_hosts.is_empty() {

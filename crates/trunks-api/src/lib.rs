@@ -10,15 +10,54 @@ pub mod middleware;
 pub mod routes;
 pub mod state;
 
+use std::time::Duration;
+
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::middleware::from_fn;
 use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 
 pub use state::AppState;
 
-/// Builds the full application router.
+/// Largest request body accepted, on the REST and on the MCP endpoints (413 beyond it).
+pub const BODY_LIMIT: usize = 4 * 1024 * 1024;
+/// Added to the request timeout on the REST endpoints, so that an upstream that hits the
+/// same limit is reported as such (and its connection released) before the deadline fires.
+const REST_DEADLINE_GRACE: Duration = Duration::from_secs(5);
+
+/// Limits of the HTTP layer (`docs/02-especificacao.md` §5).
+#[derive(Debug, Clone, Copy)]
+pub struct HttpOptions {
+    /// Upper bound for one REST request; `None` = unbounded. The MCP endpoints are streams
+    /// and are bounded per upstream call instead (`ConnectOptions::call_timeout`).
+    pub request_timeout: Option<Duration>,
+}
+
+impl Default for HttpOptions {
+    fn default() -> Self {
+        Self { request_timeout: Some(Duration::from_mins(5)) }
+    }
+}
+
+/// The access log: one `INFO` line per response with method, path, status, latency and the
+/// kind of principal. The query string is left out — it carries OAuth codes and states.
+fn access_log<B>(req: &http::Request<B>) -> tracing::Span {
+    tracing::info_span!(
+        "request",
+        method = %req.method(),
+        path = %req.uri().path(),
+        principal = tracing::field::Empty,
+    )
+}
+
+/// Builds the full application router with the default [`HttpOptions`].
 pub fn router(state: AppState) -> Router {
+    router_with(state, HttpOptions::default())
+}
+
+/// Builds the full application router.
+pub fn router_with(state: AppState, opts: HttpOptions) -> Router {
     let api_v0 = Router::new()
         .merge(routes::registry::user_router())
         .merge(routes::groups::read_router())
@@ -49,14 +88,25 @@ pub fn router(state: AppState) -> Router {
         .merge(routes::dashboard::callback_router())
         .layer(from_fn_with_state(state.clone(), middleware::require_initialized));
 
-    let mut app = Router::new()
+    let mut rest = Router::new()
         .merge(routes::public::router())
         .merge(routes::auth::router())
-        .merge(mcp::router(&state))
         .nest("/api/v0", api_v0)
-        .nest("/api/dashboard", dashboard);
+        .nest("/api/dashboard", dashboard)
+        .layer(DefaultBodyLimit::max(BODY_LIMIT));
+    if let Some(limit) = opts.request_timeout {
+        let limit = limit + REST_DEADLINE_GRACE;
+        rest = rest.layer(from_fn(move |req, next| middleware::deadline(limit, req, next)));
+    }
+
+    let mut app = rest.merge(mcp::router(&state));
     if state.metrics.is_some() {
         app = app.route("/metrics", get(routes::public::metrics));
     }
-    app.layer(tower_http::trace::TraceLayer::new_for_http()).with_state(state)
+    app.layer(
+        tower_http::trace::TraceLayer::new_for_http()
+            .make_span_with(access_log)
+            .on_response(tower_http::trace::DefaultOnResponse::new().level(tracing::Level::INFO)),
+    )
+    .with_state(state)
 }

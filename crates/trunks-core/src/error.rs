@@ -39,6 +39,12 @@ pub enum Error {
     /// The upstream answered 401 with a `WWW-Authenticate` challenge: the registry turns this
     /// into the OAuth bootstrap (or a 400 `upstream_oauth_required` when it cannot). Maps to
     /// 500 if it ever escapes.
+    /// The upstream did not answer a request within the configured limit.
+    #[snafu(display(
+        "upstream '{server}' did not answer within {seconds}s (TRUNKS_REQUEST_TIMEOUT_SEC)"
+    ))]
+    UpstreamTimeout { server: String, seconds: u64 },
+
     #[snafu(display("upstream '{server}' requires authorization"))]
     UpstreamAuthRequired { server: String, www_authenticate: String },
 

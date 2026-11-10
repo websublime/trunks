@@ -1,0 +1,45 @@
+name: fuzz
+
+# Coverage-guided fuzzing of the name and URI parsers (`fuzz/`, cargo-fuzz on nightly).
+# - Pull requests that touch the parsers or the targets: a 60 s smoke run per target.
+# - Manual runs: `seconds` per target (the release checklist asks for 3600).
+on:
+  pull_request:
+    paths:
+      - "fuzz/**"
+      - "crates/trunks-types/**"
+      - ".github/workflows/fuzz.yml"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds to fuzz each target
+        default: "3600"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [canonical_name, resource_uri]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      # `+nightly` everywhere: rust-toolchain.toml pins the stable release for the workspace.
+      - run: cargo +nightly install cargo-fuzz --locked
+      - name: Fuzz ${{ matrix.target }}
+        env:
+          SECONDS_PER_TARGET: ${{ inputs.seconds || '60' }}
+        run: cargo +nightly fuzz run "${{ matrix.target }}" -- -max_total_time="$SECONDS_PER_TARGET"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts

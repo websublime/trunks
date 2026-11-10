@@ -168,6 +168,53 @@ async fn uninitialised_api_is_403_until_init() {
 }
 
 #[tokio::test]
+async fn oversized_request_bodies_are_refused() {
+    let app = app_from(None, false).await;
+    let (s, _) =
+        call(&app.router, "POST", "/init", None, Some(serde_json::json!({"mode": "development"})))
+            .await;
+    assert_eq!(s, StatusCode::OK);
+
+    // REST: just under the limit is parsed (and refused for what it says), over it is a 413
+    let group = |description: String| serde_json::json!({"name": "big", "description": description, "included_tools": ["a__b"]});
+    let (s, b) = call(
+        &app.router,
+        "POST",
+        "/api/v0/tool-groups",
+        None,
+        Some(group("x".repeat(trunks_api::BODY_LIMIT - 1024))),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    let (s, b) = call(
+        &app.router,
+        "POST",
+        "/api/v0/tool-groups",
+        None,
+        Some(group("x".repeat(trunks_api::BODY_LIMIT + 1))),
+    )
+    .await;
+    assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(b, serde_json::json!({"error": "request body too large"}));
+
+    // MCP: the same limit, enforced by the transport
+    let mcp = |len: usize| {
+        Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header(header::HOST, "localhost")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ACCEPT, "application/json, text/event-stream")
+            .body(Body::from("x".repeat(len)))
+            .unwrap()
+    };
+    let res = app.router.clone().oneshot(mcp(trunks_api::BODY_LIMIT - 1024)).await.unwrap();
+    assert_ne!(res.status(), StatusCode::PAYLOAD_TOO_LARGE, "under the limit is read");
+    let res = app.router.clone().oneshot(mcp(trunks_api::BODY_LIMIT + 1)).await.unwrap();
+    assert_eq!(res.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
 async fn init_enterprise_returns_admin_token_once() {
     let app = app_from(None, false).await;
     let (s, b) =

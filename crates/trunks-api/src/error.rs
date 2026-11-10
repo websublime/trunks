@@ -5,9 +5,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use trunks_core::Error;
 use trunks_types::ApiErrorResponse;
-use trunks_types::error::CODE_UPSTREAM_OAUTH_REQUIRED;
+use trunks_types::error::{CODE_UPSTREAM_OAUTH_REQUIRED, messages};
 
-/// JSON body extractor whose rejection is our `400 {"error": …}` envelope instead of axum's 422 text.
+/// JSON body extractor whose rejection is our `{"error": …}` envelope instead of axum's text:
+/// 413 when the body exceeds the limit, 400 for anything else (axum would answer 415/422).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JsonBody<T>(pub T);
 
@@ -16,12 +17,17 @@ where
     S: Send + Sync,
     T: serde::de::DeserializeOwned,
 {
-    type Rejection = ApiError;
+    type Rejection = Response;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
         match Json::<T>::from_request(req, state).await {
             Ok(Json(v)) => Ok(Self(v)),
-            Err(rej) => Err(ApiError(Error::invalid_input(rej.body_text()))),
+            Err(rej) if rej.status() == StatusCode::PAYLOAD_TOO_LARGE => Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(ApiErrorResponse::new(messages::REQUEST_BODY_TOO_LARGE)),
+            )
+                .into_response()),
+            Err(rej) => Err(ApiError(Error::invalid_input(rej.body_text())).into_response()),
         }
     }
 }
@@ -58,6 +64,7 @@ pub fn classify(e: &Error) -> (StatusCode, ApiErrorResponse) {
         Error::Forbidden { .. } | Error::NotInitialized => {
             (StatusCode::FORBIDDEN, ApiErrorResponse::new(msg))
         }
+        Error::UpstreamTimeout { .. } => (StatusCode::GATEWAY_TIMEOUT, ApiErrorResponse::new(msg)),
         Error::Upstream { .. }
         | Error::UpstreamAuthRequired { .. }
         | Error::Store { .. }
@@ -81,5 +88,12 @@ mod tests {
 
         let (s, _) = classify(&Error::Internal { reason: "boom".into() });
         assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+
+        let (s, b) = classify(&Error::UpstreamTimeout { server: "fs".into(), seconds: 300 });
+        assert_eq!(s, StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(
+            b.error,
+            "upstream 'fs' did not answer within 300s (TRUNKS_REQUEST_TIMEOUT_SEC)"
+        );
     }
 }

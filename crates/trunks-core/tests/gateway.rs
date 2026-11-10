@@ -136,7 +136,7 @@ async fn connect_errors_are_actionable() {
     let err = UpstreamConn::connect(
         &name,
         &cfg,
-        &ConnectOptions { init_timeout: Duration::from_secs(5), oauth: None },
+        &ConnectOptions { init_timeout: Duration::from_secs(5), ..ConnectOptions::default() },
     )
     .await
     .err()
@@ -242,6 +242,42 @@ async fn stateful_session_is_invalidated_on_transport_error() {
     assert_eq!(st.sessions.stateful_active(), 0);
     inv.call_tool(&echo, None).await.unwrap();
     assert_eq!(st.sessions.stateful_active(), 1, "reconnected transparently");
+    st.sessions.shutdown().await;
+}
+
+#[tokio::test]
+async fn slow_upstream_calls_time_out_and_the_session_is_reopened() {
+    let opts = SessionOptions {
+        connect: ConnectOptions {
+            call_timeout: Some(Duration::from_millis(300)),
+            ..ConnectOptions::default()
+        },
+        ..SessionOptions::default()
+    };
+    let st =
+        state(snapshot_for(vec![server(1, "fs", stdio_config(), SessionMode::Stateful)]), opts);
+    let inv = Invoker(st.clone());
+    let echo = CanonicalName::parse("fs__echo").unwrap();
+    let args = |v: serde_json::Value| v.as_object().cloned();
+
+    let started = std::time::Instant::now();
+    let err =
+        inv.call_tool(&echo, args(serde_json::json!({"delay_ms": 10_000}))).await.unwrap_err();
+    assert!(
+        matches!(&err, trunks_core::Error::UpstreamTimeout { server, .. } if server == "fs"),
+        "{err}"
+    );
+    assert!(err.to_string().contains("TRUNKS_REQUEST_TIMEOUT_SEC"), "{err}");
+    assert!(started.elapsed() < Duration::from_secs(5), "bounded by the call timeout");
+    assert_eq!(st.sessions.stateful_active(), 0, "the stuck session is dropped");
+    let health = st.sessions.health();
+    let (_, h) = health.iter().find(|(n, _)| n.as_str() == "fs").unwrap();
+    assert!(h.last_error.is_some(), "the timeout shows up in the upstream's health");
+
+    // the next call opens a fresh session and works
+    let ok = inv.call_tool(&echo, args(serde_json::json!({"text": "back"}))).await.unwrap();
+    assert_eq!(text_of(&ok), "back");
+    assert_eq!(st.sessions.stateful_active(), 1);
     st.sessions.shutdown().await;
 }
 

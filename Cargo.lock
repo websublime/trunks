@@ -3327,6 +3327,7 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+ "tracing-subscriber",
  "trunks-client",
  "trunks-core",
  "trunks-dashboard",
