@@ -24,6 +24,8 @@ organisations and declarative configuration. See `docs/`.
 | [`docs/04-arquitectura.md`](docs/04-arquitectura.md) | Architecture views (C4, sequences, data, deployment) and ADRs |
 | [`docs/05-roadmap.md`](docs/05-roadmap.md) | Beyond v1: `line://ui` web app, OIDC, organisations and teams, governance |
 | [`docs/06-analise-db.md`](docs/06-analise-db.md) | Data-access layer analysis and decision (sqlx, no ORM) |
+| [`docs/07-desempenho.md`](docs/07-desempenho.md) | Benchmark results and how to reproduce them |
+| [`docs/08-operacao.md`](docs/08-operacao.md) | Operations guide: install, modes, database, network, upgrades |
 
 Documents are written in Portuguese (pt-PT) with English technical terms.
 
@@ -60,8 +62,9 @@ Requirements: Rust stable ≥ 1.94 (edition 2024). Node 20 is only needed to bui
 
 Built and published with [`cargo-dist`](https://opensource.axo.dev/cargo-dist/):
 archives for Linux/macOS/Windows (x86_64 and arm64), shell and PowerShell
-installers, checksums. Container
-images are built by a separate workflow.
+installers, checksums. Container images (`ghcr.io/websublime/trunks`, plus a `-stdio`
+variant with Node.js and uv) are built by the `docker` workflow; see
+[`docs/08-operacao.md`](docs/08-operacao.md) and [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 

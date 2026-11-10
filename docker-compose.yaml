@@ -1,0 +1,23 @@
+# Trunks for one person on one machine: development mode (no authentication), SQLite in a
+# named volume, and the `stdio` image so that upstreams started with `npx` or `uvx` work.
+#
+#   docker compose up -d
+#   trunks --registry http://localhost:8080 list servers
+#
+# Development mode has no access control: keep the port bound to this machine.
+services:
+  trunks:
+    image: ghcr.io/websublime/trunks:latest-stdio
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      TRUNKS_MODE: development
+      TRUNKS_DATABASE_URL: sqlite:///data/trunks.db
+      # The MCP endpoints only answer to these Host headers.
+      TRUNKS_ALLOWED_HOSTS: localhost,127.0.0.1
+    volumes:
+      - trunks-data:/data
+
+volumes:
+  trunks-data:

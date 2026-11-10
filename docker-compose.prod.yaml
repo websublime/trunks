@@ -1,0 +1,48 @@
+# Trunks for a team: enterprise mode (tokens, teams, grants) on PostgreSQL.
+#
+#   cp .env.example .env        # then edit it
+#   docker compose -f docker-compose.prod.yaml up -d
+#   trunks --registry https://trunks.example.com init-server
+#
+# Put a TLS-terminating reverse proxy in front of it; see docs/08-operacao.md.
+services:
+  trunks:
+    # `latest` reaches upstreams over HTTP only. Use `latest-stdio` to run stdio upstreams
+    # (npx, uvx) inside the container.
+    image: ghcr.io/websublime/trunks:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      TRUNKS_MODE: enterprise
+      TRUNKS_DATABASE_URL: postgres://trunks:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/trunks
+      # The address people and MCP clients use. Decides the cookie's `Secure` flag, the
+      # same-origin check and (with OIDC) the redirect URI.
+      TRUNKS_PUBLIC_URL: ${TRUNKS_PUBLIC_URL:?set TRUNKS_PUBLIC_URL in .env}
+      # Host headers accepted on the MCP endpoints: the public host name.
+      TRUNKS_ALLOWED_HOSTS: ${TRUNKS_ALLOWED_HOSTS:?set TRUNKS_ALLOWED_HOSTS in .env}
+      # Single sign-on (optional): uncomment and fill in .env.
+      # TRUNKS_OIDC_ISSUER: ${TRUNKS_OIDC_ISSUER}
+      # TRUNKS_OIDC_CLIENT_ID: ${TRUNKS_OIDC_CLIENT_ID}
+      # TRUNKS_OIDC_CLIENT_SECRET: ${TRUNKS_OIDC_CLIENT_SECRET}
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trunks
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: trunks
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trunks -d trunks"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
