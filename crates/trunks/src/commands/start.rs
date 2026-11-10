@@ -47,6 +47,11 @@ pub struct Args {
     #[arg(long, env = "TRUNKS_DATABASE_URL", default_value = "sqlite://trunks.db")]
     database_url: String,
 
+    /// Read the database URL from this file instead (for a secret mounted as a file); when
+    /// set, it takes precedence over the database URL
+    #[arg(long, env = "TRUNKS_DATABASE_URL_FILE")]
+    database_url_file: Option<std::path::PathBuf>,
+
     /// Expose Prometheus metrics at /metrics (default: on in enterprise mode, off in development)
     #[arg(long, env = "TRUNKS_METRICS_ENABLED")]
     metrics: Option<bool>,
@@ -161,8 +166,28 @@ fn parse_mode(s: &str) -> Result<ServerMode, String> {
         .ok_or_else(|| format!("invalid mode '{s}': expected development or enterprise"))
 }
 
-pub async fn run(args: Args) -> Result<(), Whatever> {
+/// The database URL to use: the contents of `file` when one is given, `url` otherwise.
+/// Errors name the file, never what is in it.
+fn resolve_database_url(url: &str, file: Option<&std::path::Path>) -> Result<String, String> {
+    let Some(file) = file.filter(|f| !f.as_os_str().is_empty()) else {
+        return Ok(url.to_owned());
+    };
+    let contents = std::fs::read_to_string(file)
+        .map_err(|e| format!("cannot read the database URL file '{}': {e}", file.display()))?;
+    let from_file = contents.trim();
+    if from_file.is_empty() {
+        return Err(format!("the database URL file '{}' is empty", file.display()));
+    }
+    Ok(from_file.to_owned())
+}
+
+pub async fn run(mut args: Args) -> Result<(), Whatever> {
     init_tracing();
+    args.database_url =
+        match resolve_database_url(&args.database_url, args.database_url_file.as_deref()) {
+            Ok(url) => url,
+            Err(reason) => snafu::whatever!("{reason}"),
+        };
     tracing::info!(mode = %args.mode, db = %trunks_db::redact(&args.database_url), "starting");
 
     let db =
@@ -191,7 +216,7 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
     );
 
     let metrics_enabled = args.metrics.unwrap_or(args.mode.is_enterprise());
-    let metrics = metrics_enabled.then(|| Metrics::new(&trunks_types::version::version()));
+    let metrics = metrics_enabled.then(|| Metrics::new(&crate::version::build_version()));
     // The session manager connects for gateway calls, so it needs the OAuth store too.
     let request_timeout = (args.request_timeout_sec > 0)
         .then(|| std::time::Duration::from_secs(args.request_timeout_sec));
@@ -204,13 +229,14 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         connect: connect.clone(),
         idle_timeout: (args.session_idle_timeout_sec > 0)
             .then(|| std::time::Duration::from_secs(args.session_idle_timeout_sec)),
+        metrics: metrics.clone(),
         ..SessionOptions::default()
     });
     let gateway = Arc::new(GatewayState {
         catalog: catalog.clone(),
         sessions: sessions.clone(),
         metrics: metrics.clone(),
-        version: trunks_types::version::version(),
+        version: crate::version::build_version(),
     });
     let registry_service = RegistryService::new(
         store.clone(),
@@ -270,7 +296,7 @@ fn runtime_info(
 ) -> RuntimeInfo {
     RuntimeInfo {
         mode: args.mode,
-        version: trunks_types::version::version(),
+        version: crate::version::build_version(),
         started_at: chrono::Utc::now(),
         database_backend: db.backend().to_owned(),
         database_url: trunks_db::redact(&args.database_url),
@@ -387,4 +413,46 @@ async fn shutdown_signal() {
         () = terminate => {},
     }
     tracing::info!("shutdown signal received");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_database_url_can_come_from_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |name: &str, contents: &str| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, contents).unwrap();
+            path
+        };
+        let secret = write("url", "postgres://trunks:s3cret@db:5432/trunks\n");
+        let padded = write("padded", "  sqlite:///data/trunks.db \n\n");
+        let empty = write("empty", " \n");
+        let missing = dir.path().join("missing");
+
+        // no file: the URL as given
+        assert_eq!(resolve_database_url("sqlite://a.db", None).unwrap(), "sqlite://a.db");
+        assert_eq!(
+            resolve_database_url("sqlite://a.db", Some(std::path::Path::new(""))).unwrap(),
+            "sqlite://a.db",
+            "an empty TRUNKS_DATABASE_URL_FILE counts as unset"
+        );
+        // a file wins over the URL, and surrounding whitespace is not part of it
+        assert_eq!(
+            resolve_database_url("sqlite://a.db", Some(&secret)).unwrap(),
+            "postgres://trunks:s3cret@db:5432/trunks"
+        );
+        assert_eq!(
+            resolve_database_url("sqlite://a.db", Some(&padded)).unwrap(),
+            "sqlite:///data/trunks.db"
+        );
+        // problems name the file
+        let err = resolve_database_url("sqlite://a.db", Some(&empty)).unwrap_err();
+        assert!(err.contains("is empty") && err.contains("empty"), "{err}");
+        let err = resolve_database_url("sqlite://a.db", Some(&missing)).unwrap_err();
+        assert!(err.contains("cannot read the database URL file"), "{err}");
+        assert!(err.contains("missing"), "{err}");
+    }
 }

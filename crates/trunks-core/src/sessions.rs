@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 use trunks_types::{ServerName, SessionMode};
 
 use crate::domain::ServerRecord;
+use crate::metrics::SessionGuard;
 use crate::upstream::{ConnectOptions, UpstreamConn, is_connection_error};
 use crate::{Error, Result};
 
@@ -23,6 +24,8 @@ pub struct SessionOptions {
     /// `None` = stateful connections never expire.
     pub idle_timeout: Option<Duration>,
     pub sweep_interval: Duration,
+    /// Where open sessions and failed connections are counted, when metrics are enabled.
+    pub metrics: Option<crate::metrics::Metrics>,
 }
 
 impl Default for SessionOptions {
@@ -31,12 +34,16 @@ impl Default for SessionOptions {
             connect: ConnectOptions::default(),
             idle_timeout: None,
             sweep_interval: Duration::from_mins(1),
+            metrics: None,
         }
     }
 }
 
+/// An open connection and its entry in the `trunks_upstream_sessions_active` gauge.
+type Counted = (Arc<UpstreamConn>, Option<SessionGuard>);
+
 struct Slot {
-    conn: Mutex<Option<Arc<UpstreamConn>>>,
+    conn: Mutex<Option<Counted>>,
     last_used: AtomicU64, // seconds since `epoch`
 }
 
@@ -54,6 +61,8 @@ pub struct Lease {
     pub conn: Arc<UpstreamConn>,
     server: ServerName,
     stateful: bool,
+    /// Held by stateless leases: the session lives exactly as long as the lease.
+    counted: Option<SessionGuard>,
 }
 
 impl std::fmt::Debug for Lease {
@@ -130,6 +139,11 @@ impl SessionManager {
         self.health.iter().map(|e| (e.key().clone(), e.value().clone())).collect()
     }
 
+    /// Counts a newly opened session in the metrics, if they are enabled.
+    fn count(&self, server: &ServerName, stateful: bool) -> Option<SessionGuard> {
+        self.opts.metrics.as_ref().map(|m| m.session_opened(server.as_str(), stateful))
+    }
+
     fn note_ok(&self, server: &ServerName) {
         let mut h = self.health.entry(server.clone()).or_default();
         h.last_ok_at = Some(chrono::Utc::now());
@@ -147,7 +161,12 @@ impl SessionManager {
         let lease = self.acquire_inner(server).await;
         match &lease {
             Ok(_) => self.note_ok(&server.name),
-            Err(e) => self.note_error(&server.name, &e.to_string()),
+            Err(e) => {
+                self.note_error(&server.name, &e.to_string());
+                if let Some(metrics) = &self.opts.metrics {
+                    metrics.connect_error(server.name.as_str());
+                }
+            }
         }
         lease
     }
@@ -160,7 +179,12 @@ impl SessionManager {
             SessionMode::Stateless => {
                 let conn =
                     UpstreamConn::connect(&server.name, &server.config, &self.opts.connect).await?;
-                Ok(Lease { conn: Arc::new(conn), server: server.name.clone(), stateful: false })
+                Ok(Lease {
+                    conn: Arc::new(conn),
+                    server: server.name.clone(),
+                    stateful: false,
+                    counted: self.count(&server.name, false),
+                })
             }
             SessionMode::Stateful => {
                 let slot = self
@@ -171,20 +195,20 @@ impl SessionManager {
                     })
                     .clone();
                 let mut guard = slot.conn.lock().await;
-                let conn = if let Some(c) = guard.as_ref() {
+                let conn = if let Some((c, _)) = guard.as_ref() {
                     c.clone()
                 } else {
                     let c = Arc::new(
                         UpstreamConn::connect(&server.name, &server.config, &self.opts.connect)
                             .await?,
                     );
-                    *guard = Some(c.clone());
+                    *guard = Some((c.clone(), self.count(&server.name, true)));
                     self.active.fetch_add(1, Ordering::Relaxed);
                     tracing::info!(server = %server.name, "stateful upstream session opened");
                     c
                 };
                 slot.last_used.store(self.now(), Ordering::Relaxed);
-                Ok(Lease { conn, server: server.name.clone(), stateful: true })
+                Ok(Lease { conn, server: server.name.clone(), stateful: true, counted: None })
             }
         }
     }
@@ -204,10 +228,11 @@ impl SessionManager {
             }
             drop(lease);
         } else {
-            let Lease { conn, .. } = lease;
+            let Lease { conn, counted, .. } = lease;
             if let Ok(conn) = Arc::try_unwrap(conn) {
                 conn.close().await;
             }
+            drop(counted);
         }
     }
 
@@ -215,7 +240,7 @@ impl SessionManager {
     pub async fn invalidate(&self, server: &ServerName) {
         if let Some((_, slot)) = self.slots.remove(server) {
             let conn = slot.conn.lock().await.take();
-            if let Some(conn) = conn {
+            if let Some((conn, _counted)) = conn {
                 self.active.fetch_sub(1, Ordering::Relaxed);
                 tracing::info!(server = %server, "stateful upstream session closed");
                 if let Ok(conn) = Arc::try_unwrap(conn) {

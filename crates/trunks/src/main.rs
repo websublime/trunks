@@ -6,6 +6,7 @@
 mod commands;
 mod config;
 mod envsubst;
+mod version;
 
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
@@ -131,7 +132,7 @@ async fn run(cli: Cli) -> Result<(), Whatever> {
         Command::Delete(args) => commands::identities::delete(&client, args).await,
         Command::Version => {
             println!("{BANNER}");
-            println!("CLI Version: {}", trunks_types::version::version());
+            println!("CLI Version: {}", version::build_version());
             match tokio::time::timeout(std::time::Duration::from_secs(5), client.metadata()).await {
                 Ok(Ok(m)) => println!("Server Version: {}", m.version),
                 _ => println!("Couldn't retrieve Server version at this time"),

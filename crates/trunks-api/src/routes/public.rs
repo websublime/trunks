@@ -22,8 +22,8 @@ async fn health() -> Json<Health> {
     Json(Health { status: "ok".into() })
 }
 
-async fn metadata() -> Json<ServerMetadata> {
-    Json(ServerMetadata { version: trunks_types::version::version() })
+async fn metadata(State(st): State<AppState>) -> Json<ServerMetadata> {
+    Json(ServerMetadata { version: st.runtime.version.clone() })
 }
 
 /// Initializes the installation. Development → `{status}`; enterprise → `{status, admin_access_token}`.
