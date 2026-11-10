@@ -1,4 +1,4 @@
-![Trunks: one hub in front of all your MCP servers](docs/assets/banner.jpg)
+![Trunks, gateway and registry: one endpoint in front of all your MCP servers](docs/assets/banner.jpg)
 
 # Trunks
 
