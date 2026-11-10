@@ -169,10 +169,17 @@ pub async fn scenario(backend: Backend) {
             .unwrap();
         assert_eq!(text_of(&echoed), client);
         let denied = mcp.call_tool(CallToolRequestParams::new("other__echo")).await.unwrap_err();
+        // out of reach reads as missing, and is not listed either
+        assert!(denied.to_string().contains("tool 'other__echo' not found"), "{client}: {denied}");
+        let prompts = mcp.list_all_prompts().await.unwrap();
+        assert!(prompts.iter().all(|p| p.name.starts_with("local__")), "{client}: {prompts:?}");
+        assert_eq!(prompts.len(), 1, "{client}");
+        let resources = mcp.list_all_resources().await.unwrap();
         assert!(
-            denied.to_string().contains("not authorized to access MCP server other"),
-            "{client}: {denied}"
+            resources.iter().all(|r| r.uri.starts_with("trunks://res/local/")),
+            "{client}: {resources:?}"
         );
+        assert_eq!(resources.len(), 1, "{client}");
         let _ = mcp.cancel().await;
     }
     let refused = gw.mcp("/mcp", Some(ANA)).await.err().unwrap();

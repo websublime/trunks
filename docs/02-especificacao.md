@@ -199,9 +199,8 @@ impl Principal { fn may_access(&self, server: &ServerName) -> bool }
 Ausência de `Principal` em modo enterprise → `list_*` devolve vazio e `call_*` devolve erro `-32603 "not authorized"` — **fail-closed**. Em modo dev, `Principal::DevOpen`.
 
 Regras de filtragem:
-- `list_tools`: filtra por allow-list. Tool cujo nome não tem `__` é negada.
-- `list_prompts`, `list_resources`: **não filtradas** em enterprise em v1 (a autorização acontece na invocação); filtragem na listagem entra em v1.x (roadmap).
-- `call_tool`/`get_prompt`/`read_resource`: verificam allow-list **antes** de criar qualquer sessão upstream.
+- `list_tools`, `list_prompts`, `list_resources`: filtram pelo que o cliente pode usar (allow-list ∩ acesso do dono). Tool cujo nome não tem `__` é negada.
+- `call_tool`/`get_prompt`/`read_resource`: verificam o acesso **antes** de criar qualquer sessão upstream. O que o cliente não pode usar responde **exactamente como o que não existe** — `-32602 "tool '<nome>' not found"` (idem `prompt '…'`, `resource '…'`) —, tal como a REST API: nem as listagens nem os erros revelam o que está registado fora do alcance do cliente.
 - `Scope::Group` restringe `list_tools`/`call_tool` às effective tools; `list_prompts`/`list_resources` em scope de grupo devolvem **vazio** (grupos só expõem tools em v1).
 
 Encaminhamento de uma chamada:

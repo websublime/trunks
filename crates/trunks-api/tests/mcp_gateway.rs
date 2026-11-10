@@ -273,7 +273,11 @@ async fn enterprise_mode_gateway_enforces_allow_lists() {
     assert_eq!(text(&c.call_tool(p).await.unwrap()), "ok");
     let err =
         c.call_tool(CallToolRequestParams::new("beta__echo")).await.err().unwrap().to_string();
-    assert!(err.contains("not authorized to access MCP server beta"), "{err}");
+    // what the client may not use reads exactly like what does not exist
+    assert!(err.contains("tool 'beta__echo' not found"), "{err}");
+    let missing =
+        c.call_tool(CallToolRequestParams::new("beta__nope")).await.err().unwrap().to_string();
+    assert_eq!(missing.replace("beta__nope", "beta__echo"), err, "denied and missing differ");
     let err = c
         .read_resource(rmcp::model::ReadResourceRequestParams::new(
             "trunks://res/beta/bWVtOi8vaGVsbG8".to_string(),
@@ -282,7 +286,24 @@ async fn enterprise_mode_gateway_enforces_allow_lists() {
         .err()
         .unwrap()
         .to_string();
-    assert!(err.contains("not authorized"), "{err}");
+    assert!(err.contains("resource 'trunks://res/beta/bWVtOi8vaGVsbG8' not found"), "{err}");
+    let err = c
+        .get_prompt(rmcp::model::GetPromptRequestParams::new("beta__greet"))
+        .await
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(err.contains("prompt 'beta__greet' not found"), "{err}");
+    assert!(!err.contains("authorized"), "{err}");
+    // and the listings do not show it either
+    let prompts: Vec<String> =
+        c.list_all_prompts().await.unwrap().iter().map(|p| p.name.clone()).collect();
+    assert_eq!(prompts, ["alpha__greet"], "allow-list filters prompts");
+    let resources: Vec<String> =
+        c.list_all_resources().await.unwrap().iter().map(|r| r.uri.clone()).collect();
+    assert_eq!(resources, ["trunks://res/alpha/bWVtOi8vaGVsbG8"], "allow-list filters resources");
+    // what it may use still works
+    assert!(c.get_prompt(rmcp::model::GetPromptRequestParams::new("alpha__greet")).await.is_ok());
     c.cancel().await.unwrap();
 
     // group never widens access
