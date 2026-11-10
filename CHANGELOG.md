@@ -47,10 +47,14 @@ First public version. Everything below is new.
 
 ### Operations
 
-- SQLite (default) or PostgreSQL; migrations are applied at start-up.
+- SQLite (default) or PostgreSQL; migrations are applied at start-up. The database URL
+  can be read from a file (`TRUNKS_DATABASE_URL_FILE`) to keep it out of the environment.
 - `/health`, Prometheus metrics at `/metrics` (`trunks_tool_calls_total`,
-  `trunks_tool_call_latency_seconds`, `trunks_build_info`), one access-log line per
+  `trunks_tool_call_latency_seconds`, `trunks_upstream_sessions_active`,
+  `trunks_upstream_connect_errors_total`, `trunks_build_info`), one access-log line per
   response.
+- `trunks version`, `/metadata` and `trunks_build_info` report `v<version>` for a release
+  build and `v<version>+<commit>` for any other build.
 - Limits: 4 MiB request bodies, a request timeout for REST calls and for each call to an
   upstream (`TRUNKS_REQUEST_TIMEOUT_SEC`, default 300 s), 30 s for a client to send its
   request head, graceful shutdown bounded to 10 s.

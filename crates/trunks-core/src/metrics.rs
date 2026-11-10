@@ -22,11 +22,41 @@ pub struct BuildLabels {
     pub version: String,
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct SessionLabels {
+    pub mcp_server_name: String,
+    /// `stateful` or `stateless`.
+    pub mode: String,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct ServerLabels {
+    pub mcp_server_name: String,
+}
+
 #[derive(Clone)]
 pub struct Metrics {
     registry: Arc<Mutex<Registry>>,
     tool_calls: Family<CallLabels, Counter>,
     tool_latency: Family<CallLabels, Histogram>,
+    upstream_sessions: Family<SessionLabels, Gauge>,
+    connect_errors: Family<ServerLabels, Counter>,
+}
+
+/// One open upstream session, as counted by `trunks_upstream_sessions_active`. The count goes
+/// down when this is dropped, however the session ends.
+pub struct SessionGuard(Gauge);
+
+impl std::fmt::Debug for SessionGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SessionGuard")
+    }
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        self.0.dec();
+    }
 }
 
 impl std::fmt::Debug for Metrics {
@@ -57,7 +87,42 @@ impl Metrics {
         let build = Family::<BuildLabels, Gauge>::default();
         build.get_or_create(&BuildLabels { version: version.to_owned() }).set(1);
         registry.register("build_info", "Build information", build);
-        Self { registry: Arc::new(Mutex::new(registry)), tool_calls, tool_latency }
+        let upstream_sessions = Family::<SessionLabels, Gauge>::default();
+        registry.register(
+            "upstream_sessions_active",
+            "Upstream sessions currently open (stateful: kept between calls; stateless: one per call in flight)",
+            upstream_sessions.clone(),
+        );
+        let connect_errors = Family::<ServerLabels, Counter>::default();
+        registry.register(
+            "upstream_connect_errors",
+            "Failed attempts to open a session with an upstream server",
+            connect_errors.clone(),
+        );
+        Self {
+            registry: Arc::new(Mutex::new(registry)),
+            tool_calls,
+            tool_latency,
+            upstream_sessions,
+            connect_errors,
+        }
+    }
+
+    /// Counts a session with `server` as open until the returned guard is dropped.
+    #[must_use]
+    pub fn session_opened(&self, server: &str, stateful: bool) -> SessionGuard {
+        let labels = SessionLabels {
+            mcp_server_name: clip(server),
+            mode: if stateful { "stateful".into() } else { "stateless".into() },
+        };
+        let gauge = self.upstream_sessions.get_or_create(&labels).clone();
+        gauge.inc();
+        SessionGuard(gauge)
+    }
+
+    /// Counts a failed attempt to open a session with `server`.
+    pub fn connect_error(&self, server: &str) {
+        self.connect_errors.get_or_create(&ServerLabels { mcp_server_name: clip(server) }).inc();
     }
 
     pub fn record_call(&self, server: &str, tool: &str, success: bool, seconds: f64) {

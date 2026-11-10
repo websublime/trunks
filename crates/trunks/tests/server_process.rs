@@ -184,3 +184,70 @@ async fn small_mcp_answers_are_not_held_back_by_the_tcp_stack() {
         "even the fastest of 20 small MCP calls took {fastest:?}"
     );
 }
+
+#[tokio::test]
+async fn the_database_url_file_wins_and_the_version_and_metrics_are_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port().await;
+    let base = format!("http://127.0.0.1:{port}");
+    let url_file = dir.path().join("database-url");
+    std::fs::write(&url_file, format!("sqlite://{}/from-file.db\n", dir.path().display())).unwrap();
+
+    let mut server = Command::new(bin())
+        .arg("start")
+        .env("TRUNKS_PORT", port.to_string())
+        .env("TRUNKS_DATABASE_URL", format!("sqlite://{}/from-env.db", dir.path().display()))
+        .env("TRUNKS_DATABASE_URL_FILE", &url_file)
+        .env("TRUNKS_METRICS_ENABLED", "true")
+        .env("TRUNKS_LOG", "warn")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let http = reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap();
+    for _ in 0..100 {
+        if http.get(format!("{base}/health")).send().await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // the file, not the variable, decided where the database is
+    assert!(dir.path().join("from-file.db").exists());
+    assert!(!dir.path().join("from-env.db").exists());
+
+    // one version everywhere: `v<package version>`, plus the commit for a non-release build
+    let metadata: serde_json::Value =
+        http.get(format!("{base}/metadata")).send().await.unwrap().json().await.unwrap();
+    let version = metadata["version"].as_str().unwrap().to_owned();
+    let package = format!("v{}", env!("CARGO_PKG_VERSION"));
+    assert!(version == package || version.starts_with(&format!("{package}+")), "{version}");
+    let metrics = http.get(format!("{base}/metrics")).send().await.unwrap().text().await.unwrap();
+    assert!(
+        metrics.contains(&format!("trunks_build_info{{version=\"{version}\"}} 1")),
+        "{metrics}"
+    );
+    let cli = Command::new(bin()).arg("version").env("TRUNKS_REGISTRY", &base).output().unwrap();
+    let cli = String::from_utf8_lossy(&cli.stdout).into_owned();
+    assert!(cli.contains(&format!("CLI Version: {version}")), "{cli}");
+    assert!(cli.contains(&format!("Server Version: {version}")), "{cli}");
+
+    // the upstream metrics are exposed
+    for metric in ["trunks_upstream_sessions_active", "trunks_upstream_connect_errors"] {
+        assert!(metrics.contains(&format!("# TYPE {metric} ")), "{metric} missing:\n{metrics}");
+    }
+
+    server.kill().unwrap();
+    server.wait().unwrap();
+
+    // a file that cannot be read stops the start-up and is named in the error
+    let out = Command::new(bin())
+        .arg("start")
+        .env("TRUNKS_PORT", port.to_string())
+        .env("TRUNKS_DATABASE_URL_FILE", dir.path().join("missing"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(err.contains("cannot read the database URL file") && err.contains("missing"), "{err}");
+}

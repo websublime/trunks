@@ -327,11 +327,64 @@ async fn slow_upstream_calls_time_out_and_the_session_is_reopened() {
 }
 
 #[tokio::test]
+async fn open_sessions_and_failed_connections_are_counted() {
+    let metrics = trunks_core::metrics::Metrics::new("vtest");
+    let missing = UpstreamConfig::Stdio {
+        command: "/nonexistent/upstream-binary".into(),
+        args: vec![],
+        env: BTreeMap::new(),
+    };
+    let st = state(
+        snapshot_for(vec![
+            server(1, "kept", stdio_config(), SessionMode::Stateful),
+            server(2, "percall", stdio_config(), SessionMode::Stateless),
+            server(3, "broken", missing, SessionMode::Stateless),
+        ]),
+        SessionOptions { metrics: Some(metrics.clone()), ..SessionOptions::default() },
+    );
+    let inv = Invoker(st.clone());
+    let active = |server: &str, mode: &str| {
+        let wanted = format!(
+            "trunks_upstream_sessions_active{{mcp_server_name=\"{server}\",mode=\"{mode}\"}} "
+        );
+        metrics
+            .render()
+            .lines()
+            .find_map(|l| l.strip_prefix(&wanted).map(str::to_owned))
+            .unwrap_or_else(|| "absent".to_owned())
+    };
+
+    // a stateful session stays open between calls and is counted once
+    for _ in 0..2 {
+        inv.call_tool(&CanonicalName::parse("kept__echo").unwrap(), None).await.unwrap();
+    }
+    assert_eq!(active("kept", "stateful"), "1");
+    // a stateless session only exists during the call
+    inv.call_tool(&CanonicalName::parse("percall__echo").unwrap(), None).await.unwrap();
+    assert_eq!(active("percall", "stateless"), "0");
+    // closing the stateful session brings its count back down
+    st.sessions.invalidate(&ServerName::parse("kept").unwrap()).await;
+    assert_eq!(active("kept", "stateful"), "0");
+
+    // failed connections are counted per server
+    for _ in 0..2 {
+        inv.call_tool(&CanonicalName::parse("broken__echo").unwrap(), None).await.unwrap_err();
+    }
+    let rendered = metrics.render();
+    assert!(
+        rendered.contains("trunks_upstream_connect_errors_total{mcp_server_name=\"broken\"} 2"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("connect_errors_total{mcp_server_name=\"kept\"}"), "{rendered}");
+    st.sessions.shutdown().await;
+}
+
+#[tokio::test]
 async fn idle_stateful_sessions_are_swept() {
     let opts = SessionOptions {
-        connect: ConnectOptions::default(),
         idle_timeout: Some(Duration::from_secs(1)),
         sweep_interval: Duration::from_millis(200),
+        ..SessionOptions::default()
     };
     let st =
         state(snapshot_for(vec![server(1, "fs", stdio_config(), SessionMode::Stateful)]), opts);

@@ -62,6 +62,7 @@ Imprime **uma vez** o token do administrador e guarda-o na configuração do CLI
 
 - **Migrações** aplicam-se sozinhas no arranque e são aditivas. Fazer cópia de segurança antes de actualizar.
 - **Uma instância por base de dados.** O catálogo (servidores, tools, grupos) vive em memória e só é recarregado pela instância onde a alteração é feita; outras instâncias sobre a mesma base de dados só a vêem depois de reiniciarem.
+- **O URL do PostgreSQL leva a password.** Para não a pôr numa variável de ambiente, `TRUNKS_DATABASE_URL_FILE` aponta para um ficheiro com o URL (um secret de Docker ou de Kubernetes montado como ficheiro); quando está definido, prevalece sobre `TRUNKS_DATABASE_URL`.
 - **A base de dados contém segredos em claro**: tokens de acesso de users e de MCP clients, credenciais dos upstreams (bearer, headers, `env`) e tokens OAuth. Proteger o ficheiro ou a instância e as cópias de segurança como se protege um cofre de passwords. Das sessões de browser só fica guardado um hash.
 
 ## 4. Rede
@@ -93,7 +94,11 @@ Limites do próprio Trunks, para dimensionar à volta: 30 s para um cliente envi
 ## 6. Observar
 
 - `GET /health` → 200 quando o processo está a servir. Não verifica upstreams.
-- `GET /metrics` (Prometheus): `trunks_tool_calls_total{mcp_server_name,tool_name,outcome}`, `trunks_tool_call_latency_seconds`, `trunks_build_info{version}`. Sem autenticação: não o publicar para fora.
+- `GET /metrics` (Prometheus). Sem autenticação: não o publicar para fora.
+  - `trunks_tool_calls_total{mcp_server_name,tool_name,outcome}` e `trunks_tool_call_latency_seconds` — chamadas e latência por tool;
+  - `trunks_upstream_sessions_active{mcp_server_name,mode}` — sessões de upstream abertas neste momento;
+  - `trunks_upstream_connect_errors_total{mcp_server_name}` — ligações a upstreams que falharam; a subir é o primeiro sinal de um upstream em baixo;
+  - `trunks_build_info{version}` — a versão em execução.
 - Logs em stdout/stderr. `TRUNKS_LOG` é um filtro `tracing` (`info` por defeito):
   - uma linha por resposta, com método, caminho (sem query string), estado, latência e tipo de quem pediu;
   - `TRUNKS_LOG=info,upstream.stderr=off` cala o stderr dos upstreams;
@@ -106,6 +111,7 @@ Limites do próprio Trunks, para dimensionar à volta: 30 s para um cliente envi
 - **Actualizar**: cópia de segurança → trocar o binário ou a imagem → arrancar. As migrações correm no arranque.
 - **Repor uma versão anterior**: repor também a cópia de segurança feita antes de actualizar. Uma versão antiga sobre um esquema mais novo não é suportada.
 - Os tokens não mudam numa actualização: clientes MCP e CLI continuam configurados.
+- `trunks version` mostra a versão do CLI e a do servidor. Uma versão com `+<commit>` não é um build de uma release.
 
 ## 8. Problemas comuns
 
