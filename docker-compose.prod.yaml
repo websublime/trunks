@@ -4,7 +4,7 @@
 #   docker compose -f docker-compose.prod.yaml up -d
 #   trunks --registry https://trunks.example.com init-server
 #
-# Put a TLS-terminating reverse proxy in front of it; see docs/08-operacao.md.
+# Put a TLS-terminating reverse proxy in front of it; see docs/guide/operations.md.
 services:
   trunks:
     # `latest` reaches upstreams over HTTP only. Use `latest-stdio` to run stdio upstreams

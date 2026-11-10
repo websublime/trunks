@@ -24,7 +24,7 @@ enum CreateWhat {
         /// Username (no whitespace)
         name: Option<String>,
         /// Custom token (≥ 8 chars, no whitespace); generated when omitted
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         access_token: Option<String>,
         /// JSON file with `username` and optional `access_token` (`${VAR}` expanded)
         #[arg(short = 'c', long = "conf", value_name = "FILE")]
@@ -40,7 +40,7 @@ enum CreateWhat {
         #[arg(long)]
         description: Option<String>,
         /// Custom token (≥ 8 chars, no whitespace); generated when omitted
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         access_token: Option<String>,
         /// Owner: `user:<name>` or `team:<name>` (admins may omit; users default to themselves)
         #[arg(long, value_name = "KIND:NAME")]
@@ -159,7 +159,7 @@ enum UpdateWhat {
     User {
         name: String,
         /// Custom token; generated when omitted
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         access_token: Option<String>,
     },
     /// Change an MCP client's allow list, description or token
@@ -171,7 +171,7 @@ enum UpdateWhat {
         #[arg(long)]
         description: Option<String>,
         /// Set a custom token
-        #[arg(long, conflicts_with = "rotate_token")]
+        #[arg(long, conflicts_with = "rotate_token", allow_hyphen_values = true)]
         access_token: Option<String>,
         /// Generate a new token
         #[arg(long)]

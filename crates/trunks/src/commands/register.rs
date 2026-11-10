@@ -36,7 +36,7 @@ pub struct Args {
     #[arg(long)]
     url: Option<String>,
     /// streamable_http: sent as `Authorization: Bearer …`
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     bearer_token: Option<String>,
     /// streamable_http: extra header, `Name: value` or `Name=value` (repeatable)
     #[arg(long = "header", value_name = "NAME=VALUE")]
@@ -45,7 +45,7 @@ pub struct Args {
     #[arg(long)]
     command: Option<String>,
     /// stdio: program argument (repeatable, in order)
-    #[arg(long = "arg", value_name = "ARG")]
+    #[arg(long = "arg", value_name = "ARG", allow_hyphen_values = true)]
     argv: Vec<String>,
     /// stdio: environment variable `NAME=value` (repeatable)
     #[arg(long = "env", value_name = "NAME=VALUE")]
@@ -62,7 +62,7 @@ pub struct Args {
     /// OAuth: client id of a pre-registered client (skips dynamic registration)
     #[arg(long)]
     oauth_client_id: Option<String>,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     oauth_client_secret: Option<String>,
     /// OAuth: scope to request (repeatable)
     #[arg(long = "oauth-scope", value_name = "SCOPE")]

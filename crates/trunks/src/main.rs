@@ -8,6 +8,11 @@ mod config;
 mod envsubst;
 mod version;
 
+#[cfg(test)]
+mod cli_parsing;
+#[cfg(test)]
+mod cli_reference;
+
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use snafu::{ResultExt, Whatever};

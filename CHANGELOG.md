@@ -68,6 +68,12 @@ First public version. Everything below is new.
 - Binaries, checksums and shell/PowerShell installers for Linux, macOS and Windows
   (x86_64 and arm64).
 
+### Documentation
+
+- User guide in `docs/guide`: quickstart, concepts, upstream servers, tool groups,
+  enterprise mode, connecting clients, operations, and CLI, configuration and HTTP API
+  references.
+
 ### Not in this version
 
 - The web application (`line://ui`).

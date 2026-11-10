@@ -89,7 +89,12 @@ pub struct Args {
     oidc_client_id: Option<String>,
 
     /// Prefer the environment variable over the flag: flags are visible in process listings
-    #[arg(long, env = "TRUNKS_OIDC_CLIENT_SECRET", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "TRUNKS_OIDC_CLIENT_SECRET",
+        hide_env_values = true,
+        allow_hyphen_values = true
+    )]
     oidc_client_secret: Option<String>,
 
     /// Scopes requested in addition to `openid` (comma-separated)

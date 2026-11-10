@@ -11,6 +11,7 @@ use crate::config::{self, CliConfig};
 #[derive(Debug, ClapArgs)]
 pub struct LoginArgs {
     /// Access token of a user (shown once by `init-server` or `create user`)
+    #[arg(allow_hyphen_values = true)]
     token: String,
 }
 
