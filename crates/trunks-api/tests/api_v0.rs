@@ -40,6 +40,20 @@ async fn app_from(fixture: Option<&str>, metrics: bool) -> App {
 }
 
 async fn app_with(fixture: Option<&str>, metrics: bool, http: trunks_api::HttpOptions) -> App {
+    build(fixture, metrics, http, None).await
+}
+
+/// An empty app whose process was started in `mode`, as `trunks start` builds it.
+async fn app_started_as(mode: ServerMode) -> App {
+    build(None, false, trunks_api::HttpOptions::default(), Some(mode)).await
+}
+
+async fn build(
+    fixture: Option<&str>,
+    metrics: bool,
+    http: trunks_api::HttpOptions,
+    started_as: Option<ServerMode>,
+) -> App {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db.sqlite");
     if let Some(f) = fixture {
@@ -50,6 +64,10 @@ async fn app_with(fixture: Option<&str>, metrics: bool, http: trunks_api::HttpOp
     let store = Arc::new(Store(db));
     let identity = IdentityService::new(store.clone(), store.clone());
     let mode = ModeService::load(store.clone(), identity.clone()).await.unwrap();
+    let mode = match started_as {
+        Some(started) => mode.started_as(started),
+        None => mode,
+    };
     let catalog = Catalog::empty();
     catalog.reload(store.as_ref()).await.unwrap();
     let metrics = metrics.then(|| Metrics::new("vtest"));
@@ -278,6 +296,50 @@ async fn init_enterprise_returns_admin_token_once() {
         call(&app.router, "POST", "/init", None, Some(serde_json::json!({"mode": "production"})))
             .await;
     assert_eq!(s, StatusCode::BAD_REQUEST, "legacy alias is not accepted: {b}");
+}
+
+/// An enterprise server that nobody has initialized yet must not be turned into a development
+/// one, which has no authentication, by whoever reaches it first.
+#[tokio::test]
+async fn init_accepts_only_the_mode_the_server_was_started_in() {
+    let app = app_started_as(ServerMode::Enterprise).await;
+    for mode in ["development", "DEVELOPMENT"] {
+        let (s, b) =
+            call(&app.router, "POST", "/init", None, Some(serde_json::json!({"mode": mode}))).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+        assert_eq!(
+            b["error"],
+            "this server was started in enterprise mode and cannot be initialized in development mode"
+        );
+        assert!(b.get("admin_access_token").is_none());
+    }
+    // Nothing was stored: still closed, and still open to the right initialization.
+    let (s, b) = call(&app.router, "GET", "/api/v0/servers", None, None).await;
+    assert_eq!(
+        (s, b["error"].as_str()),
+        (StatusCode::FORBIDDEN, Some("server is not initialized"))
+    );
+    let (s, b) =
+        call(&app.router, "POST", "/init", None, Some(serde_json::json!({"mode": "enterprise"})))
+            .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let token = b["admin_access_token"].as_str().unwrap().to_owned();
+    let (s, _) = call(&app.router, "GET", "/api/v0/servers", None, None).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "enterprise mode: no token, no access");
+    let (s, _) = call(&app.router, "GET", "/api/v0/servers", Some(&token), None).await;
+    assert_eq!(s, StatusCode::OK);
+
+    // The other direction: a development server is not made an enterprise one from outside.
+    let app = app_started_as(ServerMode::Development).await;
+    let (s, b) =
+        call(&app.router, "POST", "/init", None, Some(serde_json::json!({"mode": "enterprise"})))
+            .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    assert_eq!(
+        b["error"],
+        "this server was started in development mode and cannot be initialized in enterprise mode"
+    );
+    assert!(b.get("admin_access_token").is_none());
 }
 
 #[tokio::test]

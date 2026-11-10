@@ -200,7 +200,8 @@ pub async fn run(mut args: Args) -> Result<(), Whatever> {
     let identity = IdentityService::new(store.clone(), store.clone());
     let mode = ModeService::load(store.clone(), identity.clone())
         .await
-        .whatever_context("reading server configuration")?;
+        .whatever_context("reading server configuration")?
+        .started_as(args.mode);
     check_mode(&mode, args.mode).await?;
 
     let catalog = Catalog::empty();

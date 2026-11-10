@@ -41,6 +41,14 @@ pub mod messages {
     pub const ADMIN_CANNOT_BE_DELETED: &str = "the last administrator cannot be deleted";
     pub const INVALID_TOKEN_FORMAT: &str =
         "access token must be at least 8 characters long and contain no whitespace";
+
+    /// `POST /init` asking for a mode other than the one the server was started in.
+    #[must_use]
+    pub fn init_mode_mismatch(started: crate::ServerMode, requested: crate::ServerMode) -> String {
+        format!(
+            "this server was started in {started} mode and cannot be initialized in {requested} mode"
+        )
+    }
 }
 
 /// `{"error": "...", "code": "..."}`

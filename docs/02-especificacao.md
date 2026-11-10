@@ -311,7 +311,7 @@ Contrato `/api/v0` (estável dentro de 1.x; shapes detalhados no doc interno de 
 
 | Grupo | Middleware | Rotas |
 |---|---|---|
-| Público | — | `GET /health` → `{"status":"ok"}`; `GET /metadata` → `{"version"}`; `POST /init {mode}` → dev `{"status"}` / enterprise `{"status","admin_access_token"}`; já inicializado → 400; `GET /metrics` (se activo) |
+| Público | — | `GET /health` → `{"status":"ok"}`; `GET /metadata` → `{"version"}`; `POST /init {mode}` → dev `{"status"}` / enterprise `{"status","admin_access_token"}`; já inicializado → 400; `mode` diferente daquele com que o processo arrancou → 400 `this server was started in {x} mode and cannot be initialized in {y} mode`, sem nada gravado; `GET /metrics` (se activo) |
 | Auth (browser, D16) | — (só actuam em enterprise; dev → 403 `ENTERPRISE_ONLY`) | `GET /auth/config`, `GET /auth/login?return_to=`, `GET /auth/callback`, `POST /auth/token`, `POST /auth/logout` |
 | Dashboard static | `require_initialized` (a web app autentica-se contra a API; D15) | `GET /`, `/index.html`, `/assets/*` |
 | MCP | `require_initialized`, `mcp_client_auth` | `ANY /mcp`, `ANY /v0/groups/{name}/mcp` |
@@ -447,6 +447,7 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 - Todos os segredos em `SecretString`; `Debug` redigido; serialização só em `GET /server_configs` (admin) e na resposta de criação de user/client.
 - Headers downstream nunca chegam ao upstream (o `UpstreamConn` é construído sem acesso ao pedido).
 - Fail-closed por tipo: `Principal` ausente ⇒ vazio/negado.
+- Inicialização: `POST /init` é público por natureza (ainda não há identidades) e só aceita o modo com que o processo arrancou — um servidor enterprise por inicializar não pode ser transformado em development (sem autenticação) por quem lá chegar primeiro. Quem inicializa fica com o token de administrador: `trunks init-server` corre-se antes de expor o servidor.
 - Sessões de browser: cookie `HttpOnly; SameSite=Lax` (+`Secure` em https), só o SHA-256 em DB, verificação de `Origin` em mutações autenticadas por cookie, nunca aceites nos endpoints MCP. ID tokens só com algoritmos assimétricos; `state` de uso único; `client_secret`, `code_verifier`, ID/access tokens do IdP em `SecretString` e nunca em logs.
 - DNS rebinding: `allowed_hosts` loopback por defeito.
 - Processos stdio: process group próprio (Unix) ou job object (Windows), mortos em árvore no fim da sessão; sem herdar stdin; stderr por pipe, registado com os valores de `env` redigidos, 4 KiB por linha e caracteres de controlo escapados (§4.7) — nunca escrito directamente no stderr do Trunks.
