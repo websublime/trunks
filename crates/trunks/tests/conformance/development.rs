@@ -28,8 +28,9 @@ fn call(tool: &str, text: Option<&str>) -> CallToolRequestParams {
 }
 
 pub async fn scenario(backend: Backend) {
-    let Some(mut gw) = Gateway::start(backend, Mode::Development).await else { return };
+    // First, because it may have to build the binary, which blocks for a while.
     let fake = trunks_testing::fake_upstream_bin().to_string_lossy().into_owned();
+    let Some(mut gw) = Gateway::start(backend, Mode::Development).await else { return };
     let web = trunks_testing::serve_http().await;
 
     // ── registration ─────────────────────────────────────────────────────────────────

@@ -34,7 +34,9 @@ async fn upstream_stderr_is_logged_without_secrets_and_the_server_stops_cleanly(
         .stderr(out)
         .spawn()
         .unwrap();
-    let http = reqwest::Client::new();
+    // No connection reuse: the server closes idle connections after 30 s, and building the
+    // fake upstream below can block for longer than that on a clean target.
+    let http = reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap();
     for _ in 0..100 {
         if http.get(format!("{base}/health")).send().await.is_ok() {
             break;

@@ -41,8 +41,9 @@ async fn visible_tools(gw: &Gateway, token: &str) -> Vec<String> {
 }
 
 pub async fn scenario(backend: Backend) {
-    let Some(mut gw) = Gateway::start(backend, Mode::Enterprise).await else { return };
+    // First, because it may have to build the binary, which blocks for a while.
     let fake = trunks_testing::fake_upstream_bin().to_string_lossy().into_owned();
+    let Some(mut gw) = Gateway::start(backend, Mode::Enterprise).await else { return };
 
     // ── initialization ───────────────────────────────────────────────────────────────
     let (status, body) = gw.rest(Method::GET, "/api/v0/servers", None, None).await;

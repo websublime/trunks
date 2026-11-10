@@ -121,7 +121,10 @@ impl Gateway {
             .port();
         let mut gateway = Self {
             base: format!("http://127.0.0.1:{port}"),
-            http: reqwest::Client::new(),
+            // No connection reuse: the server closes connections idle for 30 s, and a test
+            // can block for longer than that (building the fake upstream on a clean target)
+            // or restart the server — either way a pooled connection would be dead.
+            http: reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap(),
             mode,
             port,
             database_url,
