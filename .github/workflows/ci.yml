@@ -55,6 +55,7 @@ jobs:
           --health-retries 10
     env:
       TRUNKS_TEST_PG_URL: postgres://trunks:trunks@127.0.0.1:5432/postgres
+      TRUNKS_TEST_REQUIRE_PG: "1" # the PostgreSQL cells must run here, never skip
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -62,5 +63,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }} # keep in sync with rust-toolchain.toml
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p trunks-db
+      # Conformance matrix {development, enterprise} × {sqlite, postgres} against the binary.
+      - run: cargo test -p trunks --test conformance
 
   # The web app job (`cargo xtask build-dashboard`) is added when web/app lands (Fase 6).
