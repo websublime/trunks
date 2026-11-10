@@ -39,6 +39,7 @@ sqlx = { workspace = true }
 pretty_assertions = { workspace = true }
 wiremock = { workspace = true }
 url = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true

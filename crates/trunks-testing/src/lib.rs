@@ -53,8 +53,10 @@ impl ServerHandler for FakeUpstream {
     ) -> Result<ListToolsResult, ErrorData> {
         let mut echo = Tool::new(
             "echo",
-            "Echoes `text`",
-            schema(&serde_json::json!({"text": {"type": "string"}})),
+            "Echoes `text`, after `delay_ms` milliseconds when given",
+            schema(
+                &serde_json::json!({"text": {"type": "string"}, "delay_ms": {"type": "integer"}}),
+            ),
         );
         echo.annotations = serde_json::from_value(serde_json::json!({"readOnlyHint": true})).ok();
         let tools = vec![
@@ -76,6 +78,14 @@ impl ServerHandler for FakeUpstream {
     ) -> Result<CallToolResponse, ErrorData> {
         let result = match &*req.name {
             "echo" => {
+                let delay = req
+                    .arguments
+                    .as_ref()
+                    .and_then(|a| a.get("delay_ms"))
+                    .and_then(serde_json::Value::as_u64);
+                if let Some(ms) = delay {
+                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                }
                 let text = req
                     .arguments
                     .as_ref()

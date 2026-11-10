@@ -9,6 +9,8 @@ pub const CODE_UPSTREAM_OAUTH_REQUIRED: &str = "upstream_oauth_required";
 /// Error messages that clients and tests depend on. They are part of the API contract.
 pub mod messages {
     pub const SERVER_NOT_INITIALIZED: &str = "server is not initialized";
+    pub const REQUEST_TIMED_OUT: &str = "request timed out";
+    pub const REQUEST_BODY_TOO_LARGE: &str = "request body too large";
     pub const SERVER_ALREADY_INITIALIZED: &str = "Server is already initialized";
     pub const MISSING_ACCESS_TOKEN: &str = "missing access token";
     pub const USER_NOT_AUTHORIZED: &str = "user is not authorized to perform this action";

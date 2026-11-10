@@ -1,15 +1,19 @@
-//! Request middleware: initialization gate and authentication.
+//! Request middleware: initialization gate, authentication and the REST deadline.
 //!
 //! Each layer inserts a typed value into the request extensions; handlers extract it with
 //! `axum::Extension`. Missing values mean the route was mounted without the right layer — a
 //! programming error that fails closed (403/401), never a panic.
 
+use std::time::Duration;
+
+use axum::Json;
 use axum::extract::{Request, State};
-use axum::http::header;
+use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use trunks_core::Error;
 use trunks_core::identity::{Principal, UserPrincipal};
+use trunks_types::ApiErrorResponse;
 use trunks_types::ServerMode;
 use trunks_types::error::messages;
 
@@ -23,6 +27,23 @@ fn bearer(req: &Request) -> Option<String> {
         .ok()?
         .strip_prefix("Bearer ")
         .map(|t| t.trim().to_owned())
+}
+
+/// Fails a REST request that takes longer than `limit` (reading the body included) with
+/// `504 {"error": "request timed out"}`. Not for the MCP endpoints, which are streams.
+pub async fn deadline(limit: Duration, req: Request, next: Next) -> Response {
+    match tokio::time::timeout(limit, next.run(req)).await {
+        Ok(response) => response,
+        Err(_) => {
+            (StatusCode::GATEWAY_TIMEOUT, Json(ApiErrorResponse::new(messages::REQUEST_TIMED_OUT)))
+                .into_response()
+        }
+    }
+}
+
+/// Adds who made the request to the access-log span (never the credential itself).
+fn log_principal(kind: &'static str) {
+    tracing::Span::current().record("principal", kind);
 }
 
 /// 403 until the installation is initialized; inserts the `ServerMode`.
@@ -103,6 +124,11 @@ pub async fn user_auth(State(st): State<AppState>, mut req: Request, next: Next)
     };
     match result {
         Ok(p) => {
+            log_principal(match &p {
+                UserPrincipal::DevOpen => "dev",
+                UserPrincipal::User { .. } if p.is_admin() => "admin",
+                UserPrincipal::User { .. } => "user",
+            });
             req.extensions_mut().insert(p);
             next.run(req).await
         }
@@ -115,6 +141,10 @@ pub async fn mcp_client_auth(State(st): State<AppState>, mut req: Request, next:
     let mode = req.extensions().get::<ServerMode>().copied().unwrap_or(ServerMode::Enterprise);
     match st.identity.authenticate_mcp_client(mode, bearer(&req).as_deref()).await {
         Ok(p) => {
+            log_principal(match &p {
+                Principal::DevOpen => "dev",
+                Principal::McpClient { .. } => "mcp_client",
+            });
             req.extensions_mut().insert::<Principal>(p);
             next.run(req).await
         }
@@ -140,5 +170,45 @@ pub async fn require_enterprise(req: Request, next: Next) -> Response {
         _ => {
             ApiError(Error::Forbidden { reason: messages::ENTERPRISE_ONLY.into() }).into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::Router;
+    use axum::body::Body;
+    use axum::middleware::from_fn;
+    use axum::routing::get;
+    use http_body_util::BodyExt as _;
+    use tower::ServiceExt as _;
+
+    use super::*;
+
+    async fn get_status(app: Router, path: &str) -> (StatusCode, String) {
+        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
+        let res = app.oneshot(req).await.unwrap();
+        let status = res.status();
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        (status, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    #[tokio::test]
+    async fn the_deadline_answers_504_and_leaves_fast_requests_alone() {
+        let limit = Duration::from_millis(50);
+        let app = Router::new()
+            .route("/fast", get(|| async { "ok" }))
+            .route(
+                "/slow",
+                get(|| async {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    "late"
+                }),
+            )
+            .layer(from_fn(move |req, next| deadline(limit, req, next)));
+
+        assert_eq!(get_status(app.clone(), "/fast").await, (StatusCode::OK, "ok".into()));
+        let (status, body) = get_status(app, "/slow").await;
+        assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(body, r#"{"error":"request timed out"}"#);
     }
 }

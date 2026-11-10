@@ -55,6 +55,10 @@ pub struct Args {
     #[arg(long, env = "TRUNKS_UPSTREAM_INIT_TIMEOUT_SEC", default_value_t = 30)]
     upstream_init_timeout_sec: u64,
 
+    /// Upper bound (seconds) for one REST request and for one upstream call (0 = no limit)
+    #[arg(long, env = "TRUNKS_REQUEST_TIMEOUT_SEC", default_value_t = 300)]
+    request_timeout_sec: u64,
+
     /// Close stateful upstream sessions idle for this many seconds (0 = never)
     #[arg(long, env = "TRUNKS_SESSION_IDLE_TIMEOUT_SEC", default_value_t = 0)]
     session_idle_timeout_sec: u64,
@@ -189,8 +193,11 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
     let metrics_enabled = args.metrics.unwrap_or(args.mode.is_enterprise());
     let metrics = metrics_enabled.then(|| Metrics::new(&trunks_types::version::version()));
     // The session manager connects for gateway calls, so it needs the OAuth store too.
+    let request_timeout = (args.request_timeout_sec > 0)
+        .then(|| std::time::Duration::from_secs(args.request_timeout_sec));
     let connect = ConnectOptions {
         init_timeout: std::time::Duration::from_secs(args.upstream_init_timeout_sec.max(1)),
+        call_timeout: request_timeout,
         oauth: Some(store.clone()),
     };
     let sessions = SessionManager::new(SessionOptions {
@@ -239,7 +246,7 @@ pub async fn run(args: Args) -> Result<(), Whatever> {
         runtime,
     };
 
-    let app = trunks_api::router(state);
+    let app = trunks_api::router_with(state, trunks_api::HttpOptions { request_timeout });
     let listener = TcpListener::bind(addr).await.whatever_context("failed to bind")?;
 
     println!("{}", super::super::BANNER);

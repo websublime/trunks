@@ -28,6 +28,9 @@ use crate::{Error, Result};
 pub struct ConnectOptions {
     /// Timeout for the MCP `initialize` handshake.
     pub init_timeout: Duration,
+    /// Upper bound for one request to an upstream after the handshake (tool call, prompt,
+    /// resource read, listing). `None` = wait for as long as the upstream takes.
+    pub call_timeout: Option<Duration>,
     /// Where stored OAuth tokens live; `None` disables OAuth-backed connections.
     pub oauth: Option<Arc<dyn OAuthStore>>,
 }
@@ -36,6 +39,7 @@ impl std::fmt::Debug for ConnectOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConnectOptions")
             .field("init_timeout", &self.init_timeout)
+            .field("call_timeout", &self.call_timeout)
             .field("oauth", &self.oauth.is_some())
             .finish()
     }
@@ -43,7 +47,11 @@ impl std::fmt::Debug for ConnectOptions {
 
 impl Default for ConnectOptions {
     fn default() -> Self {
-        Self { init_timeout: Duration::from_secs(30), oauth: None }
+        Self {
+            init_timeout: Duration::from_secs(30),
+            call_timeout: Some(Duration::from_mins(5)),
+            oauth: None,
+        }
     }
 }
 
@@ -74,6 +82,7 @@ fn init_error(server: &ServerName, e: &rmcp::service::ClientInitializeError) -> 
 pub struct UpstreamConn {
     server: ServerName,
     peer: RunningService<RoleClient, ()>,
+    call_timeout: Option<Duration>,
 }
 
 impl std::fmt::Debug for UpstreamConn {
@@ -84,6 +93,16 @@ impl std::fmt::Debug for UpstreamConn {
 
 fn upstream_err(server: &ServerName, reason: impl Into<String>) -> Error {
     Error::Upstream { server: server.to_string(), reason: reason.into() }
+}
+
+/// The domain error for a failed request to `server`.
+pub(crate) fn call_error(server: &ServerName, e: &ServiceError) -> Error {
+    match e {
+        ServiceError::Timeout { timeout } => {
+            Error::UpstreamTimeout { server: server.to_string(), seconds: timeout.as_secs() }
+        }
+        other => upstream_err(server, other.to_string()),
+    }
 }
 
 /// Whether an rmcp error means the connection itself is unusable (vs. a normal protocol error).
@@ -128,7 +147,10 @@ impl UpstreamConn {
             }
         };
         match tokio::time::timeout(opts.init_timeout, connect).await {
-            Ok(r) => r,
+            Ok(r) => r.map(|mut conn| {
+                conn.call_timeout = opts.call_timeout;
+                conn
+            }),
             Err(_) => Err(upstream_err(
                 &server,
                 format!(
@@ -159,7 +181,7 @@ impl UpstreamConn {
             ().serve(transport)
                 .await
                 .map_err(|e| upstream_err(server, format!("initialize failed: {e}")))?;
-        Ok(Self { server: server.clone(), peer })
+        Ok(Self { server: server.clone(), peer, call_timeout: None })
     }
 
     async fn connect_http(
@@ -207,7 +229,7 @@ impl UpstreamConn {
             let transport = StreamableHttpClientTransport::with_client(client, cfg);
             ().serve(transport).await.map_err(|e| init_error(server, &e))?
         };
-        Ok(Self { server: server.clone(), peer })
+        Ok(Self { server: server.clone(), peer, call_timeout: None })
     }
 
     #[must_use]
@@ -220,16 +242,31 @@ impl UpstreamConn {
         self.peer.peer_info().map(|i| Arc::new(i.capabilities.clone()))
     }
 
+    /// Runs one upstream request under `call_timeout`. On expiry the request is abandoned
+    /// and reported as [`ServiceError::Timeout`], which the session layer treats as a broken
+    /// connection (a stateful session is reopened on the next call).
+    async fn bounded<T>(
+        &self,
+        request: impl Future<Output = std::result::Result<T, ServiceError>>,
+    ) -> std::result::Result<T, ServiceError> {
+        match self.call_timeout {
+            Some(limit) => tokio::time::timeout(limit, request)
+                .await
+                .unwrap_or(Err(ServiceError::Timeout { timeout: limit })),
+            None => request.await,
+        }
+    }
+
     pub async fn list_tools(&self) -> Result<Vec<Tool>> {
-        self.peer.list_all_tools().await.map_err(|e| self.map(&e))
+        self.bounded(self.peer.list_all_tools()).await.map_err(|e| self.map(&e))
     }
 
     pub async fn list_prompts(&self) -> Result<Vec<Prompt>> {
-        self.peer.list_all_prompts().await.map_err(|e| self.map(&e))
+        self.bounded(self.peer.list_all_prompts()).await.map_err(|e| self.map(&e))
     }
 
     pub async fn list_resources(&self) -> Result<Vec<Resource>> {
-        self.peer.list_all_resources().await.map_err(|e| self.map(&e))
+        self.bounded(self.peer.list_all_resources()).await.map_err(|e| self.map(&e))
     }
 
     /// Calls `name` (the upstream's own tool name). Returns the raw error too so the
@@ -241,7 +278,7 @@ impl UpstreamConn {
     ) -> std::result::Result<CallToolResult, ServiceError> {
         let mut params = CallToolRequestParams::new(name.to_owned());
         params.arguments = arguments;
-        self.peer.call_tool(params).await
+        self.bounded(self.peer.call_tool(params)).await
     }
 
     pub async fn get_prompt(
@@ -251,7 +288,7 @@ impl UpstreamConn {
     ) -> std::result::Result<GetPromptResult, ServiceError> {
         let mut params = GetPromptRequestParams::new(name.to_owned());
         params.arguments = arguments;
-        self.peer.get_prompt(params).await
+        self.bounded(self.peer.get_prompt(params)).await
     }
 
     pub async fn read_resource(
@@ -259,7 +296,7 @@ impl UpstreamConn {
         uri: &str,
     ) -> std::result::Result<ReadResourceResult, ServiceError> {
         let params = ReadResourceRequestParams::new(uri.to_owned());
-        self.peer.read_resource(params).await
+        self.bounded(self.peer.read_resource(params)).await
     }
 
     /// Closes the session (and kills a stdio child process).
@@ -268,6 +305,6 @@ impl UpstreamConn {
     }
 
     fn map(&self, e: &ServiceError) -> Error {
-        upstream_err(&self.server, e.to_string())
+        call_error(&self.server, e)
     }
 }

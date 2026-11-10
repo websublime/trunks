@@ -51,6 +51,9 @@ fn build_dashboard(root: &Path) -> Result<(), String> {
 fn ci(root: &Path) -> Result<(), String> {
     run("cargo", &["fmt", "--all", "--check"], root)?;
     run("cargo", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"], root)?;
+    // The stdio fixture is a separate binary that `cargo test` only builds when it is missing:
+    // build it first so a stale copy cannot skew the results.
+    run("cargo", &["build", "--package", "trunks-testing", "--bin", "fake-upstream"], root)?;
     run("cargo", &["test", "--workspace"], root)?;
     Ok(())
 }

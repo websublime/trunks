@@ -166,7 +166,7 @@ Implementação (Fase 2b): `RegistryService { store: Arc<dyn RegistryStore>, cat
 Invariantes (verificadas por testes):
 
 1. `register`: validar nome e URL → **ligar e `initialize` ao upstream** (timeout `TRUNKS_UPSTREAM_INIT_TIMEOUT_SEC`) → só depois persistir. Falha de connect = nada persistido.
-2. Descoberta: `tools/list` obrigatório (falha → falha o registo); `prompts/list` e `resources/list` só se o upstream anunciar a capability e são best-effort (warn, não falham).
+2. Descoberta: `tools/list` obrigatório (falha → falha o registo); `prompts/list` e `resources/list` só se o upstream anunciar a capability e são best-effort (warn, não falham). Resources sem `uri` ou com `uri` vazio são ignorados (não têm URI público: `trunks://res/<server>/` não é parseável).
 3. Registo e deregisto correm numa **transacção** (servidor + entidades filhas + tokens/sessões OAuth).
 4. `force=true`: deregista o existente antes de registar; persistido na sessão OAuth pendente para repetir no `complete`.
 5. Enable/disable por entidade devolve só os nomes cujo estado **efectivo** mudou no nível servidor, e `[entity]` sempre no nível individual (mesmo se já estava nesse estado). Desactivar um servidor invalida a sua sessão stateful.
@@ -238,6 +238,8 @@ pub struct UpstreamConn { peer: rmcp::service::RunningService<RoleClient, ()>, l
 | `streamable_http` | `rmcp::transport::StreamableHttpClientTransport` com `reqwest::Client` por servidor: headers configurados + `Authorization: Bearer` (se não houver `Authorization` explícito). Se existir `upstream_oauth_tokens` para o servidor → wrapper `AuthClient` do módulo `rmcp::transport::auth` com `CredentialStore` persistente em DB (refresh automático). `initialize` com `tokio::time::timeout(init_timeout)`; erro mapeado para mensagem que menciona `TRUNKS_UPSTREAM_INIT_TIMEOUT_SEC`; `ConnectionRefused` + URL loopback → hint `host.docker.internal`. |
 | `stdio` | `rmcp::transport::TokioChildProcess` sobre `tokio::process::Command`: `env` configurado **sobre** o ambiente herdado do processo (documentar; opção `inherit_env: false` no roadmap), `kill_on_drop(true)`, `process_group(0)` em Unix para matar descendentes. Stderr capturado por task que faz `tracing::warn!(target="upstream.stderr", server=%name, "{chunk}")`. `clientInfo = {name: "trunks upstream client", version}`. |
 | `sse` | **[BREAKING, D4=(a)]** não implementado. `connect` devolve `UnsupportedTransport`. |
+
+Depois do `initialize`, cada pedido a um upstream (`tools/call`, `prompts/get`, `resources/read` e as listagens da descoberta) tem um limite `call_timeout` = `TRUNKS_REQUEST_TIMEOUT_SEC` (0 = sem limite). Ao expirar, o pedido é abandonado e devolve `UpstreamTimeout` — `upstream '{server}' did not answer within {n}s (TRUNKS_REQUEST_TIMEOUT_SEC)`: 504 em REST, erro JSON-RPC interno em MCP. Conta como erro de ligação: fica nas notas de saúde do upstream e uma sessão stateful é fechada e reaberta na chamada seguinte.
 
 ### 4.8 OAuth upstream
 
@@ -350,7 +352,7 @@ Shapes de identidades (enterprise + admin; em development → 403 `ENTERPRISE_ON
 - Leituras de `/api/v0` (`servers`, `tools`, `tool`, `prompts`, `prompt`, `resources`, `tool-groups[/{n}[/effective-tools]]`) e invocações (`tools/invoke`, `prompts/render`, `resources/{get,read}`) são filtradas pelo `AccessSet` do caller; mutações de grupos continuam admin-only.
 - Erros de validação: `USERNAME_REQUIRED`, `NAME_REQUIRED`, `INVALID_TOKEN_FORMAT`, `invalid allow list entry '{e}': …`.
 
-Erros: `{"error": string, "code"?: string}`. Mapeamento `RegistryError → StatusCode`: `NotFound→404`, `InvalidInput→400` (+`code:"upstream_oauth_required"` quando aplicável), `Unauthorized→401`, `Forbidden→403`, resto `→500` com a mensagem. Mensagens que testes/CLI dependem: `"server is not initialized"` (403), `"missing access token"`, `"invalid access token: …"`, `"user is not authorized to perform this action"`, `"this request is only allowed in enterprise mode"`, `"missing MCP client access token"`, `"invalid MCP client token"`, `"Server is already initialized"`, `"name is required"`, `"missing 'name' query parameter"`, `"missing 'entity' query parameter"`, `"invalid 'force' query parameter: expected true or false"`, `"url is required for the streamable_http transport"`, `"command is required for the stdio transport"`, `"the 'sse' transport is not supported; register the server as streamable_http"`, `"tool group not found: {name}"`.
+Erros: `{"error": string, "code"?: string}`. Mapeamento `RegistryError → StatusCode`: `NotFound→404`, `InvalidInput→400` (+`code:"upstream_oauth_required"` quando aplicável), `Unauthorized→401`, `Forbidden→403`, `UpstreamTimeout→504`, resto `→500` com a mensagem. Fora do domínio: corpo acima do limite → 413 `"request body too large"`; prazo do pedido REST excedido → 504 `"request timed out"`. Mensagens que testes/CLI dependem: `"server is not initialized"` (403), `"missing access token"`, `"invalid access token: …"`, `"user is not authorized to perform this action"`, `"this request is only allowed in enterprise mode"`, `"missing MCP client access token"`, `"invalid MCP client token"`, `"Server is already initialized"`, `"name is required"`, `"missing 'name' query parameter"`, `"missing 'entity' query parameter"`, `"invalid 'force' query parameter: expected true or false"`, `"url is required for the streamable_http transport"`, `"command is required for the stdio transport"`, `"the 'sse' transport is not supported; register the server as streamable_http"`, `"tool group not found: {name}"`.
 
 Middleware:
 - `require_initialized`: lê `ServerConfig` de um `watch::Receiver<Option<ServerMode>>` em memória (actualizado por `/init`), não da DB por pedido. 403 se não inicializado. Insere `ServerMode` nas extensions.
@@ -358,9 +360,10 @@ Middleware:
 - `mcp_client_auth`: dev → `Principal::DevOpen`; enterprise → bearer → lookup em `mcp_clients` (tokens de user e cookies de sessão são **rejeitados**) → 401; insere `Principal::McpClient`.
 - `require_admin`: dev → passa; enterprise → role ≠ admin → 403.
 - `require_enterprise`: 403 com a mensagem acima.
-- `trace`: access log com método, path, status, latência, `principal.kind` (nunca o token).
+- `trace`: access log — uma linha `INFO` por resposta com `method`, `path` (**sem query string**: transporta `code`/`state` de OAuth), `status`, `latency` e `principal` ∈ `dev|user|admin|mcp_client` (nunca o token).
+- Prazo REST: `TRUNKS_REQUEST_TIMEOUT_SEC` + 5 s de folga (para um upstream que atinja o mesmo limite ser reportado como tal), leitura do corpo incluída → 504. **Não** se aplica aos endpoints MCP, que são streams; aí o limite é por pedido ao upstream (§4.7).
 - Host/Origin: `StreamableHttpServerConfig.allowed_hosts` por defeito é loopback-only (protecção DNS rebinding). Configurável via `TRUNKS_ALLOWED_HOSTS` (lista separada por vírgulas; `*` desliga).
-- Body limit: 4 MiB nos endpoints REST; `max_request_body_bytes` do rmcp no MCP.
+- Body limit: 4 MiB (`trunks_api::BODY_LIMIT`) em REST (`DefaultBodyLimit`) e em MCP (`max_request_body_bytes` do rmcp, fixado explicitamente); acima → 413.
 
 Web app: `trunks-dashboard` embebe o bundle de `web/app` (Lit + `line://ui`) com `rust-embed`; build via `cargo xtask build-dashboard` (`npm ci && npm run build`, copia para `crates/trunks-dashboard/dist`). Rotas `/`, `/index.html`, `/assets/*`; sem SPA fallback em v1. `summarize_server_config` nunca emite `bearer_token`, valores de `env`, header `authorization` (case-insensitive), userinfo/query/fragment de URLs; `command` truncado a 80 chars.
 
@@ -410,6 +413,7 @@ Precedência: flag > env var > `.env` (via `dotenvy`) > default. Todas as env va
 | `TRUNKS_METRICS_ENABLED` | `true/false` — liga `/metrics` | on em enterprise, off em dev |
 | `TRUNKS_UPSTREAM_INIT_TIMEOUT_SEC` | inteiro ≥1; timeout do `initialize` upstream | 30 |
 | `TRUNKS_SESSION_IDLE_TIMEOUT_SEC` | ≥0; 0 = sem expiração | 0 |
+| `--request-timeout-sec` / `TRUNKS_REQUEST_TIMEOUT_SEC` | ≥0; limite de um pedido REST e de um pedido a um upstream; 0 = sem limite | 300 |
 | `TRUNKS_ALLOWED_HOSTS` | lista de `Host` aceites nos endpoints MCP; `*` desliga | loopback |
 | `TRUNKS_IGNORE_SSE_SERVERS` | `1` → ignora servidores `sse` legacy em vez de falhar o arranque | unset |
 | `TRUNKS_LOG` (fallback `RUST_LOG`) | filtro `tracing` | `info` |
@@ -433,7 +437,7 @@ Métricas (`prometheus-client`), labels `mcp_server_name`, `tool_name`, `outcome
 - `trunks_tool_call_latency_seconds` (histogram, buckets `0.005 … 30`).
 - **Novos:** `trunks_upstream_sessions_active{mcp_server_name,mode}` (gauge), `trunks_upstream_connect_errors_total{mcp_server_name}`, `trunks_build_info{version}`.
 
-Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gateway`, `trunks::sessions`, `upstream.stderr`). Nunca logar tokens, `Authorization`, `env` de stdio, `client_secret`. Access log via `tower_http::trace` ao nível `info`.
+Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gateway`, `trunks::sessions`, `upstream.stderr`). Nunca logar tokens, `Authorization`, `env` de stdio, `client_secret`. Access log via `tower_http::trace` ao nível `info`. Em `debug`/`trace` as dependências (rmcp, sqlx) registam argumentos e resultados de tools e o texto das queries — nunca credenciais (verificado por `log_hygiene`), mas pode ser conteúdo sensível do utilizador: não usar esses níveis em produção sem necessidade.
 
 ## 11. Segurança
 
@@ -443,12 +447,15 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 - Sessões de browser: cookie `HttpOnly; SameSite=Lax` (+`Secure` em https), só o SHA-256 em DB, verificação de `Origin` em mutações autenticadas por cookie, nunca aceites nos endpoints MCP. ID tokens só com algoritmos assimétricos; `state` de uso único; `client_secret`, `code_verifier`, ID/access tokens do IdP em `SecretString` e nunca em logs.
 - DNS rebinding: `allowed_hosts` loopback por defeito.
 - Processos stdio: process group próprio, `kill_on_drop`, stderr limitado a 4 KiB por chunk, sem herdar stdin.
+- Limites: corpo ≤ 4 MiB, prazo por pedido (`TRUNKS_REQUEST_TIMEOUT_SEC`). Sem limite próprio para a leitura dos headers HTTP (slowloris): em produção, atrás de um reverse proxy.
 - `cargo deny` (advisories, licenças permissivas), `cargo audit` no CI.
 
 ## 12. Testes
 
 | Nível | Onde | Cobertura |
 |---|---|---|
+| Fuzz | `fuzz/` (cargo-fuzz, nightly; workspace próprio) + `trunks-types/tests/names_random.rs` | invariantes dos parsers de nomes e URIs (`trunks-types/tests/invariants`, partilhadas): nunca entram em pânico, parse ∘ print = identidade, qualquer nome/URI não vazio sobrevive ao round-trip. O teste com seed corre em todo o CI; o workflow `fuzz` corre 60 s por target nos PRs que tocam nos parsers e 1 h por target a pedido |
+| Higiene de logs | `trunks-api/tests/log_hygiene.rs` | sessão enterprise completa com todos os níveis de log ligados (incl. `TRACE` de dependências): nenhum token, bearer, header, `env`, cookie de sessão, `code` ou `state` aparece no output |
 | Unit | cada crate | parsing de nomes/URIs (tabela de casos §4.1), resolução de grupos, filtragem por allow-list, classificação de erros, token gen/validate, `summarize_server_config` |
 | Integration (core) | `trunks-core/tests` com stores em memória + upstream `rmcp` em processo | registo/deregisto/enable cascata, stateless vs stateful, invalidação, OAuth com `wiremock` como authorization server |
 | API | `trunks-api/tests` com `axum::Router` + SQLite `:memory:` | cada rota, códigos, shapes, middleware; login OIDC contra um IdP falso (`trunks_testing::oidc::FakeIdp`: discovery, JWKS, token, userinfo) incl. rotação de chaves, `aud`/assinatura/expiração/`nonce`/algoritmo simétrico rejeitados, `state` de uso único, CSRF por `Origin` |
