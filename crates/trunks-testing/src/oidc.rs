@@ -85,9 +85,13 @@ fn sign(issuer: &str, id: &Identity) -> String {
     header.kid = Some("test".into());
     let mut jwt = jsonwebtoken::encode(&header, &claims, &key).unwrap();
     if id.tamper {
-        // flip the last signature character
-        let last = jwt.pop().unwrap();
-        jwt.push(if last == 'A' { 'B' } else { 'A' });
+        // Change the first signature character: all of its six bits are signature data, so
+        // the result is always well-formed base64url carrying a different signature. (The
+        // last character also holds padding bits; changing it can yield a malformed token
+        // instead of a wrong signature.)
+        let at = jwt.rfind('.').unwrap() + 1;
+        let replacement = if jwt[at..].starts_with('A') { "B" } else { "A" };
+        jwt.replace_range(at..=at, replacement);
     }
     jwt
 }
