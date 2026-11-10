@@ -99,6 +99,32 @@ impl UserPrincipal {
         }
     }
 
+    /// A server the caller may know about: granted directly, or reached through a granted
+    /// group that uses one of its tools.
+    #[must_use]
+    pub fn may_see_server(&self, snap: &crate::catalog::Snapshot, server: &ServerName) -> bool {
+        self.may_use_server(server)
+            || snap
+                .tools
+                .values()
+                .any(|t| &t.server == server && self.may_use_tool(snap, &t.canonical))
+    }
+
+    /// The server, or the same "not found" an unknown name gets: a server outside the
+    /// caller's reach must not be distinguishable from one that does not exist.
+    pub fn visible_server<'a>(
+        &self,
+        snap: &'a crate::catalog::Snapshot,
+        server: &ServerName,
+    ) -> Result<&'a Arc<crate::domain::ServerRecord>> {
+        let record = snap.server(server)?;
+        if self.may_see_server(snap, server) {
+            Ok(record)
+        } else {
+            Err(Error::not_found(format!("mcp server '{server}'")))
+        }
+    }
+
     /// The user's id, `None` in development mode.
     #[must_use]
     pub fn user_id(&self) -> Option<i64> {

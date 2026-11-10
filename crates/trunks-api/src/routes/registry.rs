@@ -5,7 +5,6 @@ use axum::extract::{Query, State};
 use axum::routing::get;
 use axum::{Extension, Json, Router};
 use trunks_core::Error;
-use trunks_core::catalog::Snapshot;
 use trunks_core::identity::UserPrincipal;
 use trunks_types::api::{
     AccessView, ByNameQuery, ByServerQuery, McpServer, Prompt, Resource, TeamMembership, Tool,
@@ -40,12 +39,6 @@ fn server_filter(q: &ByServerQuery) -> Result<Option<ServerName>, ApiError> {
     })
 }
 
-/// A server the caller may see: granted directly, or via a granted group that uses it.
-fn visible_server(p: &UserPrincipal, snap: &Snapshot, name: &ServerName) -> bool {
-    p.may_use_server(name)
-        || snap.tools.values().any(|t| &t.server == name && p.may_use_tool(snap, &t.canonical))
-}
-
 async fn list_servers(
     State(st): State<AppState>,
     Extension(p): Extension<UserPrincipal>,
@@ -54,7 +47,7 @@ async fn list_servers(
     Json(
         snap.servers
             .values()
-            .filter(|s| visible_server(&p, &snap, &s.name))
+            .filter(|s| p.may_see_server(&snap, &s.name))
             .map(|s| s.to_api())
             .collect(),
     )
@@ -68,7 +61,7 @@ async fn list_tools(
     let filter = server_filter(&q)?;
     let snap = st.catalog.load();
     if let Some(name) = &filter {
-        snap.server(name)?;
+        p.visible_server(&snap, name)?;
     }
     Ok(Json(
         snap.tools
@@ -108,7 +101,7 @@ async fn list_prompts(
     let filter = server_filter(&q)?;
     let snap = st.catalog.load();
     if let Some(name) = &filter {
-        snap.server(name)?;
+        p.visible_server(&snap, name)?;
     }
     Ok(Json(
         snap.prompts
@@ -148,7 +141,7 @@ async fn list_resources(
     let filter = server_filter(&q)?;
     let snap = st.catalog.load();
     if let Some(name) = &filter {
-        snap.server(name)?;
+        p.visible_server(&snap, name)?;
     }
     Ok(Json(
         snap.resources

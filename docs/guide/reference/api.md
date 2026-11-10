@@ -73,7 +73,7 @@ For any user. Base path `/api/v0`.
 | Method and path | Request | Response |
 |---|---|---|
 | `GET /servers` | | `[Server]` |
-| `GET /tools?server=` | `server` optional | `[Tool]` |
+| `GET /tools?server=` | `server` optional; 404 when it does not exist or is out of reach | `[Tool]` |
 | `GET /tool?name=` | canonical tool name | `Tool` |
 | `POST /tools/invoke` | `{"name": "<server>__<tool>", …arguments}` | the tool's result: `{"content":[…], "isError"?, "structuredContent"?}` |
 | `GET /prompts?server=` | `server` optional | `[Prompt]` |
@@ -180,7 +180,7 @@ without an owner. How owner and allow list combine is described in
 | `GET /teams/{name}` | any user | | `{"name","description","members":[{"username","role"}]}` |
 | `POST /teams` | administrator | `{"name","description"?}` | 201, the team with its members |
 | `PUT /teams/{name}` | administrator | `{"description"}` | the team |
-| `DELETE /teams/{name}` | administrator | | 204 |
+| `DELETE /teams/{name}` | administrator | | 204; also deletes the team's memberships, grants and MCP clients |
 | `POST /teams/{name}/members` | administrator or team maintainer | `{"username","role"?}`; `role` is `member` (default) or `maintainer`; an existing member's role is updated | the team with its members |
 | `DELETE /teams/{name}/members/{username}` | administrator or team maintainer | | 204 |
 
@@ -226,9 +226,12 @@ read-only views for the web application. No response contains a credential: serv
 described by their URL or command and by the *names* of their headers and environment
 variables.
 
-In enterprise mode these views need a user token but are **not limited by the caller's
-grants**: any user can read the full list of servers, tools and groups here.
+Each view holds only what the caller may use, by the same rules as the REST API: the servers,
+tools and groups a user was granted, counted accordingly; a server or group outside the
+caller's reach answers 404 like one that does not exist. `overview` includes `sessions` (open
+upstream sessions of the whole process) for administrators only.
 
-`diagnostics` is the one most useful on its own: it reports the database backend, the listen
-address, the allowed hosts, the time limits, the upstreams whose last connection failed (with
-the error) and the OAuth authorizations still pending.
+`diagnostics` and `oauth/session/{id}` describe the installation and are for administrators
+(403 otherwise). `diagnostics` reports the database backend, the listen address, the allowed
+hosts, the time limits, the upstreams whose last connection failed (with the error) and the
+OAuth authorizations still pending.

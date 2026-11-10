@@ -1,24 +1,34 @@
 //! `/api/dashboard/*` — read-only aggregated, sanitized views for the web app (D15), plus the
-//! OAuth browser callback. In enterprise mode the reads sit behind `user_auth`; the callback
-//! is public (the IdP redirects the browser there; `state` is unguessable and single-use).
+//! OAuth browser callback. In enterprise mode the reads sit behind `user_auth` and hold only
+//! what the caller may use (D14), exactly like the `/api/v0` reads; the views about the
+//! installation itself (diagnostics, authorization sessions) are for administrators. The
+//! callback is public (the IdP redirects the browser there; `state` is unguessable and
+//! single-use).
 
 use axum::extract::{Path, Query, State};
+use axum::middleware::from_fn;
 use axum::response::Html;
 use axum::routing::get;
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use serde::Deserialize;
 use trunks_core::Error;
 use trunks_core::dashboard::{
     self, Diagnostics, GroupSummary, OAuthSessionStatus, Overview, ServerDetail, ServerSummary,
 };
+use trunks_core::identity::UserPrincipal;
 use trunks_types::api::{ByServerQuery, Prompt, Resource, Tool};
 use trunks_types::{GroupName, ServerName};
 
 use crate::error::ApiError;
+use crate::middleware;
 use crate::state::AppState;
 
-/// Reads (behind `user_auth` in enterprise).
+/// Reads (behind `user_auth` in enterprise), each limited to what the caller may use.
 pub fn router() -> Router<AppState> {
+    let admin = Router::new()
+        .route("/diagnostics", get(diagnostics))
+        .route("/oauth/session/{id}", get(oauth_session))
+        .route_layer(from_fn(middleware::require_admin));
     Router::new()
         .route("/overview", get(overview))
         .route("/servers", get(servers))
@@ -28,8 +38,7 @@ pub fn router() -> Router<AppState> {
         .route("/resources", get(resources))
         .route("/tool-groups", get(groups))
         .route("/tool-groups/{name}", get(group))
-        .route("/diagnostics", get(diagnostics))
-        .route("/oauth/session/{id}", get(oauth_session))
+        .merge(admin)
 }
 
 /// The browser callback (public).
@@ -37,33 +46,40 @@ pub fn callback_router() -> Router<AppState> {
     Router::new().route("/oauth/callback", get(oauth_callback))
 }
 
-async fn overview(State(st): State<AppState>) -> Result<Json<Overview>, ApiError> {
+async fn overview(
+    State(st): State<AppState>,
+    Extension(p): Extension<UserPrincipal>,
+) -> Result<Json<Overview>, ApiError> {
     let snap = st.catalog.load();
     let extras = st.registry_service.dashboard_extras().await?;
-    let pending = extras.pending.values().filter(|p| p.expires_at > chrono::Utc::now()).count();
     Ok(Json(dashboard::overview(
         &snap,
         &st.runtime,
         st.gateway.sessions.stateful_active(),
-        pending,
+        &extras,
+        &p,
     )))
 }
 
-async fn servers(State(st): State<AppState>) -> Result<Json<Vec<ServerSummary>>, ApiError> {
+async fn servers(
+    State(st): State<AppState>,
+    Extension(p): Extension<UserPrincipal>,
+) -> Result<Json<Vec<ServerSummary>>, ApiError> {
     let snap = st.catalog.load();
     let extras = st.registry_service.dashboard_extras().await?;
-    Ok(Json(dashboard::servers(&snap, &extras)))
+    Ok(Json(dashboard::servers(&snap, &extras, &p)))
 }
 
 async fn server(
     State(st): State<AppState>,
+    Extension(p): Extension<UserPrincipal>,
     Path(name): Path<String>,
 ) -> Result<Json<ServerDetail>, ApiError> {
     let name = ServerName::parse(name).map_err(Error::from)?;
     let snap = st.catalog.load();
-    let record = snap.server(&name)?;
+    let record = p.visible_server(&snap, &name)?;
     let extras = st.registry_service.dashboard_extras().await?;
-    Ok(Json(dashboard::server_detail(&snap, record, &extras)))
+    Ok(Json(dashboard::server_detail(&snap, record, &extras, &p)))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -76,6 +92,7 @@ struct ToolsQuery {
 
 async fn tools(
     State(st): State<AppState>,
+    Extension(p): Extension<UserPrincipal>,
     Query(q): Query<ToolsQuery>,
 ) -> Result<Json<Vec<Tool>>, ApiError> {
     let filter = match q.server.as_deref().filter(|s| !s.is_empty()) {
@@ -88,6 +105,7 @@ async fn tools(
             .values()
             .filter(|t| filter.as_ref().is_none_or(|f| &t.server == f))
             .filter(|t| q.enabled.is_none_or(|e| t.enabled == e))
+            .filter(|t| p.may_use_tool(&snap, &t.canonical))
             .map(|t| t.to_api())
             .collect(),
     ))
@@ -102,6 +120,7 @@ fn server_filter(q: &ByServerQuery) -> Result<Option<ServerName>, ApiError> {
 
 async fn prompts(
     State(st): State<AppState>,
+    Extension(p): Extension<UserPrincipal>,
     Query(q): Query<ByServerQuery>,
 ) -> Result<Json<Vec<Prompt>>, ApiError> {
     let filter = server_filter(&q)?;
@@ -109,14 +128,16 @@ async fn prompts(
     Ok(Json(
         snap.prompts
             .values()
-            .filter(|p| filter.as_ref().is_none_or(|f| &p.server == f))
-            .map(|p| p.to_api())
+            .filter(|x| filter.as_ref().is_none_or(|f| &x.server == f))
+            .filter(|x| p.may_use_server(&x.server))
+            .map(|x| x.to_api())
             .collect(),
     ))
 }
 
 async fn resources(
     State(st): State<AppState>,
+    Extension(p): Extension<UserPrincipal>,
     Query(q): Query<ByServerQuery>,
 ) -> Result<Json<Vec<Resource>>, ApiError> {
     let filter = server_filter(&q)?;
@@ -125,24 +146,38 @@ async fn resources(
         snap.resources
             .values()
             .filter(|r| filter.as_ref().is_none_or(|f| &r.server == f))
+            .filter(|r| p.may_use_server(&r.server))
             .map(|r| r.to_api())
             .collect(),
     ))
 }
 
-async fn groups(State(st): State<AppState>) -> Json<Vec<GroupSummary>> {
+async fn groups(
+    State(st): State<AppState>,
+    Extension(p): Extension<UserPrincipal>,
+) -> Json<Vec<GroupSummary>> {
     let snap = st.catalog.load();
-    Json(snap.groups.values().map(dashboard::group_summary).collect())
+    Json(
+        snap.groups
+            .values()
+            .filter(|g| p.may_use_group(&g.name))
+            .map(dashboard::group_summary)
+            .collect(),
+    )
 }
 
 async fn group(
     State(st): State<AppState>,
+    Extension(p): Extension<UserPrincipal>,
     Path(name): Path<String>,
 ) -> Result<Json<GroupSummary>, ApiError> {
     let name = GroupName::parse(name).map_err(Error::from)?;
     let snap = st.catalog.load();
-    let g =
-        snap.groups.get(&name).ok_or_else(|| Error::not_found(format!("tool group '{name}'")))?;
+    let g = snap
+        .groups
+        .get(&name)
+        .filter(|g| p.may_use_group(&g.name))
+        .ok_or_else(|| Error::not_found(format!("tool group '{name}'")))?;
     Ok(Json(dashboard::group_summary(g)))
 }
 

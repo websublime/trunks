@@ -721,6 +721,138 @@ async fn dashboard_reads_are_sanitized_and_gated_in_enterprise() {
     );
 }
 
+/// The dashboard views follow the same rule as `/api/v0`: what a caller may not use is not
+/// listed, not counted, and answered exactly like something that does not exist.
+#[tokio::test]
+async fn dashboard_views_hold_only_what_the_caller_may_use() {
+    let (admin, anon, _dir) = boot(ServerMode::Enterprise).await;
+    let base = admin.base_url().to_string().trim_end_matches('/').to_owned();
+    let http = reqwest::Client::new();
+    let mut alpha = stdio_input("alpha");
+    alpha.env.insert("API_KEY".into(), "super-secret-value".into());
+    admin.register_server(&alpha, false).await.unwrap();
+    admin.register_server(&stdio_input("beta"), false).await.unwrap();
+    admin.create_group(&group("dev", &["beta__echo"], &[], &[])).await.unwrap();
+    admin.create_group(&group("ops", &["alpha__echo"], &[], &[])).await.unwrap();
+
+    let get = |who: &Client, path: &str| {
+        let req = http.get(format!("{base}/api/dashboard/{path}")).bearer_auth(admin_token(who));
+        async move {
+            let res = req.send().await.unwrap();
+            let status = res.status().as_u16();
+            (status, res.json::<serde_json::Value>().await.unwrap_or_default())
+        }
+    };
+    let listed = |v: &serde_json::Value, key: &str| -> Vec<String> {
+        v.as_array().unwrap().iter().map(|x| x[key].as_str().unwrap().to_owned()).collect()
+    };
+
+    // ---- no grants: nothing, and nothing to tell apart from "does not exist"
+    let nobody = user_client(&admin, &anon, "nobody").await;
+    for path in ["servers", "tools", "prompts", "resources", "tool-groups", "tools?server=alpha"] {
+        let (status, body) = get(&nobody, path).await;
+        assert_eq!((status, &body), (200, &serde_json::json!([])), "{path}");
+    }
+    let (status, overview) = get(&nobody, "overview").await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        overview["counts"],
+        serde_json::json!({
+            "servers": 0, "servers_enabled": 0, "tools": 0, "tools_enabled": 0,
+            "prompts": 0, "resources": 0, "tool_groups": 0, "pending_oauth": 0
+        })
+    );
+    assert!(overview.get("sessions").is_none(), "process-wide facts are for admins: {overview}");
+    let (status, hidden) = get(&nobody, "servers/alpha").await;
+    let (_, missing) = get(&nobody, "servers/zzz").await;
+    assert_eq!(status, 404);
+    assert_eq!(
+        hidden["error"].as_str().unwrap().replace("alpha", "zzz"),
+        missing["error"].as_str().unwrap(),
+        "a hidden server answers like a missing one"
+    );
+    let (status, hidden) = get(&nobody, "tool-groups/dev").await;
+    let (_, missing) = get(&nobody, "tool-groups/zzz").await;
+    assert_eq!(status, 404);
+    assert_eq!(
+        hidden["error"].as_str().unwrap().replace("dev", "zzz"),
+        missing["error"].as_str().unwrap()
+    );
+    // the installation's own views are for administrators
+    for path in ["diagnostics", "oauth/session/x"] {
+        assert_eq!(get(&nobody, path).await.0, 403, "{path}");
+    }
+
+    // ---- a group grant: that group, its tools, and the server only as far as those tools go
+    let gina = user_client(&admin, &anon, "gina").await;
+    admin.grant(&grant("user", "gina", "tool_group", "dev")).await.unwrap();
+    let (_, servers) = get(&gina, "servers").await;
+    assert_eq!(listed(&servers, "name"), ["beta"]);
+    assert_eq!(
+        servers[0]["counts"],
+        serde_json::json!({"tools": 1, "tools_enabled": 1, "prompts": 0, "resources": 0})
+    );
+    let (_, detail) = get(&gina, "servers/beta").await;
+    assert_eq!(listed(&detail["tools"], "name"), ["beta__echo"]);
+    assert!(detail["prompts"].as_array().unwrap().is_empty());
+    assert!(detail["resources"].as_array().unwrap().is_empty());
+    assert_eq!(get(&gina, "servers/alpha").await.0, 404);
+    assert_eq!(listed(&get(&gina, "tools").await.1, "name"), ["beta__echo"]);
+    assert_eq!(get(&gina, "prompts").await.1, serde_json::json!([]));
+    assert_eq!(get(&gina, "resources").await.1, serde_json::json!([]));
+    assert_eq!(listed(&get(&gina, "tool-groups").await.1, "name"), ["dev"]);
+    assert_eq!(get(&gina, "tool-groups/dev").await.0, 200);
+    assert_eq!(get(&gina, "tool-groups/ops").await.0, 404);
+    let (_, overview) = get(&gina, "overview").await;
+    assert_eq!(overview["counts"]["servers"], 1);
+    assert_eq!(overview["counts"]["tools"], 1);
+    assert_eq!(overview["counts"]["prompts"], 0);
+    assert_eq!(overview["counts"]["tool_groups"], 1);
+
+    // ---- a server grant: the whole server, and no group
+    let sam = user_client(&admin, &anon, "sam").await;
+    admin.grant(&grant("user", "sam", "server", "alpha")).await.unwrap();
+    let (_, servers) = get(&sam, "servers").await;
+    assert_eq!(listed(&servers, "name"), ["alpha"]);
+    assert_eq!(
+        servers[0]["counts"],
+        serde_json::json!({"tools": 3, "tools_enabled": 3, "prompts": 1, "resources": 1})
+    );
+    let text = servers.to_string();
+    assert!(text.contains("API_KEY") && !text.contains("super-secret-value"), "{text}");
+    assert_eq!(get(&sam, "tools").await.1.as_array().unwrap().len(), 3);
+    assert_eq!(get(&sam, "tools?server=beta").await.1, serde_json::json!([]));
+    assert_eq!(get(&sam, "prompts").await.1.as_array().unwrap().len(), 1);
+    assert_eq!(get(&sam, "resources").await.1.as_array().unwrap().len(), 1);
+    assert_eq!(get(&sam, "tool-groups").await.1, serde_json::json!([]));
+    assert_eq!(get(&sam, "diagnostics").await.0, 403);
+
+    // ---- the administrator still sees everything, process-wide facts included
+    let (_, overview) = get(&admin, "overview").await;
+    assert_eq!(overview["counts"]["servers"], 2);
+    assert_eq!(overview["counts"]["tools"], 6);
+    assert_eq!(overview["counts"]["tool_groups"], 2);
+    assert!(overview["sessions"]["stateful_active"].is_u64(), "{overview}");
+    assert_eq!(listed(&get(&admin, "servers").await.1, "name"), ["alpha", "beta"]);
+    assert_eq!(get(&admin, "diagnostics").await.0, 200);
+    assert_eq!(get(&admin, "oauth/session/x").await.0, 200);
+
+    // ---- the same rule on /api/v0: filtering by a hidden server is filtering by a missing one
+    for kind in ["tools", "prompts", "resources"] {
+        let status = |who: &Client, server: &str| {
+            let req = http
+                .get(format!("{base}/api/v0/{kind}?server={server}"))
+                .bearer_auth(admin_token(who));
+            async move { req.send().await.unwrap().status().as_u16() }
+        };
+        assert_eq!(status(&nobody, "alpha").await, 404, "{kind}: hidden");
+        assert_eq!(status(&nobody, "zzz").await, 404, "{kind}: missing");
+        assert_eq!(status(&sam, "alpha").await, 200, "{kind}: granted");
+        assert_eq!(status(&sam, "beta").await, 404, "{kind}: hidden");
+        assert_eq!(status(&gina, "beta").await, 200, "{kind}: seen through a group");
+    }
+}
+
 fn admin_token(c: &Client) -> String {
     c.token().map(|t| secrecy::ExposeSecret::expose_secret(t).to_owned()).unwrap_or_default()
 }
@@ -1025,14 +1157,34 @@ async fn teams_memberships_and_owned_clients() {
     // a client's access follows live changes: revoking the team grant empties carol's client
     admin.revoke(&grant("team", "data", "server", "beta")).await.unwrap();
     assert!(mcp_list_tools(&base, &tok).await.unwrap().is_empty());
-    // removing carol from the team: she keeps nothing; deleting the team drops the team-owned client's owner
+    // removing carol from the team: she keeps nothing
     bob.remove_team_member("data", "carol").await.unwrap();
     assert!(carol.whoami().await.unwrap().teams.is_empty());
+
+    // Deleting the team deletes its clients. Left behind without an owner, a client would be
+    // limited by its allow list alone: this one names a server the team could not use.
+    let reach = bob
+        .create_client(&CreateMcpClientRequest {
+            name: "team-reach".into(),
+            allow_list: vec!["alpha".into()],
+            owner: Some(Owner { kind: "team".into(), name: "data".into() }),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let reach_token = reach.access_token.unwrap();
+    assert!(
+        mcp_list_tools(&base, &reach_token).await.unwrap().is_empty(),
+        "the team has no grant on alpha, so neither has its client"
+    );
     admin.delete_team("data").await.unwrap();
     admin.delete_team("data").await.unwrap();
-    let orphan =
-        admin.list_clients().await.unwrap().into_iter().find(|c| c.name == "team-bot").unwrap();
-    assert!(orphan.owner.is_none(), "ownerless after the team is deleted → allow_list semantics");
+    assert_eq!(
+        names(admin.list_clients().await.unwrap(), |c| c.name.clone()),
+        ["carol-ide"],
+        "the team's clients went with it; carol's own client stays"
+    );
+    assert!(mcp_list_tools(&base, &reach_token).await.is_err(), "its token no longer works");
 
     // ownerless admin-created clients keep the legacy allow-list behaviour
     let legacy = admin

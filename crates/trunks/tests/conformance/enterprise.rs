@@ -10,6 +10,7 @@ use crate::gateway::{Backend, Gateway, Mode, text_of, tool_names};
 const ANA: &str = "ana-token-0123456789";
 const IDE: &str = "ide-token-0123456789";
 const ANA_IDE: &str = "ana-ide-token-0123456789";
+const TEAM_BOT: &str = "team-bot-token-0123456789";
 const LOCAL_TOOLS: [&str; 3] = ["local__echo", "local__echo_headers", "local__fail"];
 
 /// The value printed after `label` on its own line of a CLI output.
@@ -130,6 +131,33 @@ pub async fn scenario(backend: Backend) {
     assert!(visible_tools(&gw, &rui).await.is_empty(), "a revoked grant stops working");
     let grants = gw.cli(&["list", "grants"]).await.success();
     assert!(grants.contains("team platform → server local") && !grants.contains("rui"), "{grants}");
+
+    // the dashboard views follow the same grants: rui has none, ana has `local`
+    let names_in = |v: &Value| -> Vec<String> {
+        v.as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_owned()).collect()
+    };
+    let (status, servers) = gw.rest(Method::GET, "/api/dashboard/servers", Some(&rui), None).await;
+    assert_eq!((status, &servers), (200, &json!([])), "no grant, nothing to see");
+    let (status, tools) = gw.rest(Method::GET, "/api/dashboard/tools", Some(&rui), None).await;
+    assert_eq!((status, &tools), (200, &json!([])));
+    let (status, _) = gw.rest(Method::GET, "/api/dashboard/servers/local", Some(&rui), None).await;
+    assert_eq!(status, 404, "a server outside the grants reads as missing");
+    let (_, overview) = gw.rest(Method::GET, "/api/dashboard/overview", Some(&rui), None).await;
+    assert_eq!(
+        (&overview["counts"]["servers"], &overview["counts"]["tools"]),
+        (&json!(0), &json!(0))
+    );
+    let (_, servers) = gw.rest(Method::GET, "/api/dashboard/servers", Some(ANA), None).await;
+    assert_eq!(names_in(&servers), ["local"]);
+    let (_, servers) = gw.rest(Method::GET, "/api/dashboard/servers", Some(&admin), None).await;
+    assert_eq!(names_in(&servers), ["local", "other"]);
+    for token in [ANA, rui.as_str()] {
+        let (status, _) =
+            gw.rest(Method::GET, "/api/dashboard/diagnostics", Some(token), None).await;
+        assert_eq!(status, 403, "diagnostics are for administrators");
+    }
+    let (status, _) = gw.rest(Method::GET, "/api/dashboard/diagnostics", Some(&admin), None).await;
+    assert_eq!(status, 200);
 
     // ── users are not administrators ─────────────────────────────────────────────────
     let (status, body) = gw.rest(Method::GET, "/api/v0/users", Some(ANA), None).await;
@@ -288,6 +316,31 @@ pub async fn scenario(backend: Backend) {
     let _ = mcp.cancel().await;
     let teams = gw.cli(&["list", "teams"]).await.success();
     assert!(teams.contains("platform") && !teams.contains("ana"), "{teams}");
+
+    // A team's clients go with the team. Left without an owner, this one would be limited by
+    // its allow list alone, and reach a server the team was never granted.
+    gw.cli(&[
+        "create",
+        "mcp-client",
+        "team-bot",
+        "--owner",
+        "team:platform",
+        "--allow",
+        "other",
+        "--access-token",
+        TEAM_BOT,
+    ])
+    .await
+    .success();
+    let mcp = gw.mcp("/mcp", Some(TEAM_BOT)).await.unwrap();
+    assert!(tool_names(&mcp).await.is_empty(), "the team has no grant on `other`");
+    let _ = mcp.cancel().await;
+    let out = gw.cli(&["delete", "team", "platform"]).await.success();
+    assert!(out.contains("platform"), "{out}");
+    let refused = gw.mcp("/mcp", Some(TEAM_BOT)).await.err().unwrap();
+    assert!(refused.contains("401"), "a deleted team's clients go with it: {refused}");
+    let clients = gw.cli(&["list", "mcp-clients"]).await.success();
+    assert!(clients.contains("ide") && !clients.contains("team-bot"), "{clients}");
 
     gw.finish().await;
 }

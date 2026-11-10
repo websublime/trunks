@@ -3,6 +3,10 @@
 //! Everything here is derived from the catalog snapshot plus a few runtime facts; nothing in
 //! these structs can carry a credential: `config_summary` lists header/env **names** only,
 //! commands are truncated, OAuth state is reduced to a status.
+//!
+//! Every view is built **for a viewer** (D14 applied to D15): it holds only what that caller
+//! may use, counts included, so what is outside their reach looks exactly like what does not
+//! exist. Administrators (and development mode) see everything.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -14,6 +18,7 @@ use trunks_types::{ServerMode, ServerName, SessionMode, Transport};
 
 use crate::catalog::{GroupView, Snapshot};
 use crate::domain::{ServerRecord, UpstreamConfig};
+use crate::identity::UserPrincipal;
 use crate::ports::PendingAuthorization;
 use crate::sessions::UpstreamHealth;
 
@@ -58,8 +63,11 @@ pub struct Overview {
     pub mode: ServerMode,
     pub version: String,
     pub uptime_seconds: i64,
+    /// Of what the viewer may use.
     pub counts: Counts,
-    pub sessions: SessionStats,
+    /// A fact about the whole process: present for administrators only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions: Option<SessionStats>,
     pub metrics_enabled: bool,
 }
 
@@ -267,8 +275,20 @@ impl Extras {
 }
 
 #[must_use]
-pub fn server_summary(snap: &Snapshot, s: &ServerRecord, extras: &Extras) -> ServerSummary {
-    let tools: Vec<_> = snap.tools.values().filter(|t| t.server == s.name).collect();
+pub fn server_summary(
+    snap: &Snapshot,
+    s: &ServerRecord,
+    extras: &Extras,
+    viewer: &UserPrincipal,
+) -> ServerSummary {
+    let tools: Vec<_> = snap
+        .tools
+        .values()
+        .filter(|t| t.server == s.name && viewer.may_use_tool(snap, &t.canonical))
+        .collect();
+    // Prompts and resources come only with the server itself, never through a group.
+    let whole = viewer.may_use_server(&s.name);
+    let oauth = extras.oauth_for(&s.name);
     ServerSummary {
         name: s.name.clone(),
         transport: s.config.transport(),
@@ -279,31 +299,59 @@ pub fn server_summary(snap: &Snapshot, s: &ServerRecord, extras: &Extras) -> Ser
         counts: EntityCounts {
             tools: tools.len(),
             tools_enabled: tools.iter().filter(|t| t.enabled).count(),
-            prompts: snap.prompts.values().filter(|p| p.server == s.name).count(),
-            resources: snap.resources.values().filter(|r| r.server == s.name).count(),
+            prompts: snap.prompts.values().filter(|p| whole && p.server == s.name).count(),
+            resources: snap.resources.values().filter(|r| whole && r.server == s.name).count(),
         },
-        oauth: extras.oauth_for(&s.name),
+        // The id of a pending authorization is what completes it: administrators only.
+        oauth: if viewer.is_admin() {
+            oauth
+        } else {
+            OAuthSummary { status: oauth.status, ..Default::default() }
+        },
         last_error: extras.health.get(&s.name).and_then(|h| h.last_error.clone()),
         created_at: s.created_at,
         updated_at: s.updated_at,
     }
 }
 
+/// The servers the viewer may see.
 #[must_use]
-pub fn servers(snap: &Snapshot, extras: &Extras) -> Vec<ServerSummary> {
-    snap.servers.values().map(|s| server_summary(snap, s, extras)).collect()
+pub fn servers(snap: &Snapshot, extras: &Extras, viewer: &UserPrincipal) -> Vec<ServerSummary> {
+    snap.servers
+        .values()
+        .filter(|s| viewer.may_see_server(snap, &s.name))
+        .map(|s| server_summary(snap, s, extras, viewer))
+        .collect()
 }
 
+/// One server with the entities of it the viewer may use. The caller checks visibility
+/// (`UserPrincipal::visible_server`).
 #[must_use]
-pub fn server_detail(snap: &Snapshot, s: &ServerRecord, extras: &Extras) -> ServerDetail {
+pub fn server_detail(
+    snap: &Snapshot,
+    s: &ServerRecord,
+    extras: &Extras,
+    viewer: &UserPrincipal,
+) -> ServerDetail {
+    let whole = viewer.may_use_server(&s.name);
     ServerDetail {
-        summary: server_summary(snap, s, extras),
-        tools: snap.tools.values().filter(|t| t.server == s.name).map(|t| t.to_api()).collect(),
-        prompts: snap.prompts.values().filter(|p| p.server == s.name).map(|p| p.to_api()).collect(),
+        summary: server_summary(snap, s, extras, viewer),
+        tools: snap
+            .tools
+            .values()
+            .filter(|t| t.server == s.name && viewer.may_use_tool(snap, &t.canonical))
+            .map(|t| t.to_api())
+            .collect(),
+        prompts: snap
+            .prompts
+            .values()
+            .filter(|p| whole && p.server == s.name)
+            .map(|p| p.to_api())
+            .collect(),
         resources: snap
             .resources
             .values()
-            .filter(|r| r.server == s.name)
+            .filter(|r| whole && r.server == s.name)
             .map(|r| r.to_api())
             .collect(),
     }
@@ -319,28 +367,41 @@ pub fn group_summary(g: &Arc<GroupView>) -> GroupSummary {
     }
 }
 
+/// Counts of what the viewer may use. `stateful_active` describes the whole process and is
+/// reported to administrators only.
 #[must_use]
 pub fn overview(
     snap: &Snapshot,
     info: &RuntimeInfo,
     stateful_active: u64,
-    pending_oauth: usize,
+    extras: &Extras,
+    viewer: &UserPrincipal,
 ) -> Overview {
+    let now = Utc::now();
+    let servers: Vec<_> =
+        snap.servers.values().filter(|s| viewer.may_see_server(snap, &s.name)).collect();
+    let tools: Vec<_> =
+        snap.tools.values().filter(|t| viewer.may_use_tool(snap, &t.canonical)).collect();
     Overview {
         mode: info.mode,
         version: info.version.clone(),
-        uptime_seconds: (Utc::now() - info.started_at).num_seconds().max(0),
+        uptime_seconds: (now - info.started_at).num_seconds().max(0),
         counts: Counts {
-            servers: snap.servers.len(),
-            servers_enabled: snap.servers.values().filter(|s| s.enabled).count(),
-            tools: snap.tools.len(),
-            tools_enabled: snap.tools.values().filter(|t| t.enabled).count(),
-            prompts: snap.prompts.len(),
-            resources: snap.resources.len(),
-            tool_groups: snap.groups.len(),
-            pending_oauth,
+            servers: servers.len(),
+            servers_enabled: servers.iter().filter(|s| s.enabled).count(),
+            tools: tools.len(),
+            tools_enabled: tools.iter().filter(|t| t.enabled).count(),
+            prompts: snap.prompts.values().filter(|p| viewer.may_use_server(&p.server)).count(),
+            resources: snap.resources.values().filter(|r| viewer.may_use_server(&r.server)).count(),
+            tool_groups: snap.groups.values().filter(|g| viewer.may_use_group(&g.name)).count(),
+            // Pending authorizations belong to registrations, an administrator's business.
+            pending_oauth: if viewer.is_admin() {
+                extras.pending.values().filter(|p| p.expires_at > now).count()
+            } else {
+                0
+            },
         },
-        sessions: SessionStats { stateful_active },
+        sessions: viewer.is_admin().then_some(SessionStats { stateful_active }),
         metrics_enabled: info.metrics_enabled,
     }
 }
