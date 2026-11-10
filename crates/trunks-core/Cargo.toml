@@ -31,6 +31,10 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 arc-swap = { workspace = true }
 dashmap = { workspace = true }
+process-wrap = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
