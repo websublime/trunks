@@ -11,7 +11,7 @@ parents), default.
 | Flag | Environment variable | Meaning | Default |
 |---|---|---|---|
 | `--mode` | `TRUNKS_MODE` | `development` or `enterprise` (case-insensitive). Fixed once the database is initialized | `development` |
-| `--host` | `TRUNKS_BIND_HOST` | address to listen on; empty means every interface | every interface |
+| `--host` | `TRUNKS_BIND_HOST` | address to listen on; empty means every interface | `127.0.0.1` in development mode, every interface in enterprise mode; the container images set `0.0.0.0` |
 | `--port` | `TRUNKS_PORT` | port to listen on | `8080` |
 | `--database-url` | `TRUNKS_DATABASE_URL` | `sqlite://<path>` or `postgres://user:pass@host:port/db` | `sqlite://trunks.db` |
 | `--database-url-file` | `TRUNKS_DATABASE_URL_FILE` | file containing the database URL (for a secret mounted as a file). Takes precedence over the URL; surrounding whitespace is ignored; an unreadable or empty file is a start-up error | unset |
@@ -36,6 +36,9 @@ connections are closed after 30 s; 10 s for requests in flight at shutdown.
 |---|---|---|---|
 | `--metrics` | `TRUNKS_METRICS_ENABLED` | `true` or `false`: serve Prometheus metrics at `/metrics` | on in enterprise mode, off in development |
 | | `TRUNKS_LOG` | log filter in `tracing` syntax, e.g. `info`, `debug`, `info,upstream.stderr=off`. `RUST_LOG` is used when it is unset | `info` |
+
+The log format follows the mode: text in development mode; in enterprise mode JSON, one object
+per line (`timestamp`, `level`, `fields`, `target`, and the request `span` on access-log lines).
 
 ### Single sign-on (OIDC)
 

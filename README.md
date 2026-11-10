@@ -25,7 +25,7 @@ organisations and declarative configuration. See `docs/`.
 curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/websublime/trunks/releases/latest/download/trunks-installer.sh | sh
 
-trunks start --host 127.0.0.1          # development mode: no authentication, local use only
+trunks start                           # development mode: no authentication, this machine only
 
 # in another terminal: register an MCP server, then call one of its tools through the gateway
 trunks register --name everything \

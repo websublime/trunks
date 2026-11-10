@@ -3,6 +3,7 @@
 //! Phase 0: binds and serves the public routes with graceful shutdown. Mode,
 //! database and catalog wiring arrive in Phase 1 (`docs/04-plano.md`).
 
+use std::io::Write as _;
 use std::net::SocketAddr;
 
 use clap::Args as ClapArgs;
@@ -35,9 +36,10 @@ pub struct Args {
     #[arg(long, env = "TRUNKS_PORT", default_value_t = 8080)]
     port: u16,
 
-    /// Host to bind to (empty = all interfaces)
-    #[arg(long, env = "TRUNKS_BIND_HOST", default_value = "")]
-    host: String,
+    /// Host to bind to; empty = all interfaces [default: 127.0.0.1 in development mode,
+    /// all interfaces in enterprise mode]
+    #[arg(long, env = "TRUNKS_BIND_HOST")]
+    host: Option<String>,
 
     /// Operating mode: development | enterprise
     #[arg(long, env = "TRUNKS_MODE", default_value = "development", value_parser = parse_mode)]
@@ -186,8 +188,52 @@ fn resolve_database_url(url: &str, file: Option<&std::path::Path>) -> Result<Str
     Ok(from_file.to_owned())
 }
 
+/// Where to listen. Development mode has no authentication, so unless told otherwise it is
+/// reachable from this machine only; an empty host asks for every interface.
+fn bind_host(host: Option<&str>, mode: ServerMode) -> &str {
+    match host {
+        Some("") => ALL_INTERFACES,
+        Some(host) => host,
+        None if mode.is_enterprise() => ALL_INTERFACES,
+        None => "127.0.0.1",
+    }
+}
+
+const ALL_INTERFACES: &str = "0.0.0.0";
+
+/// The socket address, with a warning when development mode is reachable from elsewhere.
+fn bind_address(host: &str, port: u16, mode: ServerMode) -> Result<SocketAddr, Whatever> {
+    let addr: SocketAddr =
+        format!("{host}:{port}").parse().whatever_context("invalid bind address")?;
+    if !mode.is_enterprise() && !addr.ip().is_loopback() {
+        tracing::warn!(
+            %addr,
+            "development mode has no authentication: everyone who can reach this address can \
+             manage the server and run the commands of its stdio upstreams"
+        );
+    }
+    Ok(addr)
+}
+
+/// Says where the server listens: a log event when the output is JSON (no banner in a stream
+/// of JSON objects), the banner otherwise.
+fn announce(addr: SocketAddr, json_logs: bool) {
+    if json_logs {
+        tracing::info!(%addr, "Trunks HTTP server listening");
+    } else {
+        // Nobody reading the banner is no reason to stop the server.
+        let _ = writeln!(
+            std::io::stdout(),
+            "{}\nTrunks HTTP server listening on {addr}",
+            super::super::BANNER
+        );
+    }
+}
+
 pub async fn run(mut args: Args) -> Result<(), Whatever> {
-    init_tracing();
+    // Enterprise mode logs JSON, one object per line, for whatever collects the logs.
+    let json_logs = args.mode.is_enterprise();
+    init_tracing(json_logs);
     args.database_url =
         match resolve_database_url(&args.database_url, args.database_url_file.as_deref()) {
             Ok(url) => url,
@@ -256,9 +302,9 @@ pub async fn run(mut args: Args) -> Result<(), Whatever> {
         Ok(_) => {}
         Err(e) => tracing::warn!(error = %e, "could not purge expired OAuth sessions"),
     }
-    let host = if args.host.is_empty() { "0.0.0.0" } else { args.host.as_str() };
-    let addr: SocketAddr =
-        format!("{host}:{}", args.port).parse().whatever_context("invalid bind address")?;
+    let host = bind_host(args.host.as_deref(), args.mode).to_owned();
+    let host = host.as_str();
+    let addr = bind_address(host, args.port, args.mode)?;
     let allowed_hosts: Vec<String> =
         args.allowed_hosts.iter().filter(|h| !h.is_empty()).cloned().collect();
     let runtime = runtime_info(&args, &db, applied.latest, host, &allowed_hosts, metrics.is_some());
@@ -282,8 +328,7 @@ pub async fn run(mut args: Args) -> Result<(), Whatever> {
     let app = trunks_api::router_with(state, http);
     let listener = TcpListener::bind(addr).await.whatever_context("failed to bind")?;
 
-    println!("{}", super::super::BANNER);
-    println!("Trunks HTTP server listening on {addr}");
+    announce(addr, json_logs);
 
     trunks_api::serve(listener, app, http, shutdown_signal()).await;
     sessions.shutdown().await;
@@ -357,7 +402,7 @@ async fn check_mode(mode: &ModeService, requested: ServerMode) -> Result<(), Wha
             tracing::info!("initialized in development mode");
         }
         None => {
-            println!(
+            tracing::warn!(
                 "Server is not initialized. Run `trunks init-server` to initialize it in enterprise mode."
             );
         }
@@ -386,11 +431,16 @@ fn guard_sse(snap: &trunks_core::catalog::Snapshot) -> Result<(), Whatever> {
     )
 }
 
-fn init_tracing() {
+fn init_tracing(json: bool) {
     let filter = EnvFilter::try_from_env("TRUNKS_LOG")
         .or_else(|_| EnvFilter::try_from_default_env())
         .unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    let logs = tracing_subscriber::fmt().with_env_filter(filter);
+    if json {
+        logs.json().init();
+    } else {
+        logs.init();
+    }
     if tracing::level_enabled!(tracing::Level::DEBUG) {
         tracing::warn!(
             "verbose logging is enabled: at debug/trace level the MCP and database libraries \
@@ -424,6 +474,24 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn development_mode_listens_on_loopback_unless_told_otherwise() {
+        use ServerMode::{Development, Enterprise};
+        let cases = [
+            (None, Development, "127.0.0.1"),
+            (None, Enterprise, "0.0.0.0"),
+            (Some(""), Development, "0.0.0.0"),
+            (Some(""), Enterprise, "0.0.0.0"),
+            (Some("0.0.0.0"), Development, "0.0.0.0"),
+            (Some("10.0.0.5"), Development, "10.0.0.5"),
+            (Some("127.0.0.1"), Enterprise, "127.0.0.1"),
+            (Some("::1"), Enterprise, "::1"),
+        ];
+        for (host, mode, expected) in cases {
+            assert_eq!(bind_host(host, mode), expected, "{host:?} in {mode} mode");
+        }
+    }
 
     #[test]
     fn the_database_url_can_come_from_a_file() {

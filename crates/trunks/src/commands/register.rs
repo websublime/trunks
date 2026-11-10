@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::out::outln;
 use clap::{Args as ClapArgs, ValueEnum};
 use snafu::{ResultExt, Whatever};
 use trunks_client::Client;
@@ -186,13 +187,13 @@ async fn register_with_oauth(
         let Some(auth) = auth else {
             snafu::whatever!("the upstream requires OAuth; the custom redirect URI was rejected");
         };
-        println!(
+        outln!(
             "The upstream requires OAuth authorization. Open this URL in a browser:\n\n  {}\n",
             auth.authorization_url
         );
-        println!("Then complete the registration with:");
-        println!("  trunks oauth-complete {} --code <code> --state <state>", auth.session_id);
-        println!("(the session expires at {})", auth.expires_at.format("%Y-%m-%d %H:%M:%S UTC"));
+        outln!("Then complete the registration with:");
+        outln!("  trunks oauth-complete {} --code <code> --state <state>", auth.session_id);
+        outln!("(the session expires at {})", auth.expires_at.format("%Y-%m-%d %H:%M:%S UTC"));
         snafu::whatever!("registration pending OAuth authorization");
     }
     let mut listener = super::oauth_flow::Listener::start().await?;
@@ -220,32 +221,32 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
     let input = build_input(&args)?;
     let name = input.name.clone();
     let server = register_with_oauth(client, input, args.force).await?;
-    println!("Server {} registered successfully!", server.name);
+    outln!("Server {} registered successfully!", server.name);
 
     let tools = client.list_tools(Some(&name)).await.whatever_context("listing tools")?;
     let prompts = client.list_prompts(Some(&name)).await.whatever_context("listing prompts")?;
     let resources =
         client.list_resources(Some(&name)).await.whatever_context("listing resources")?;
     if tools.is_empty() && prompts.is_empty() && resources.is_empty() {
-        println!("This server does not provide any tools, prompts or resources.");
+        outln!("This server does not provide any tools, prompts or resources.");
         return Ok(());
     }
     if !tools.is_empty() {
-        println!("\nTools ({}):", tools.len());
+        outln!("\nTools ({}):", tools.len());
         for t in &tools {
-            println!("  {}  {}", t.name, t.description);
+            outln!("  {}  {}", t.name, t.description);
         }
     }
     if !prompts.is_empty() {
-        println!("\nPrompts ({}):", prompts.len());
+        outln!("\nPrompts ({}):", prompts.len());
         for p in &prompts {
-            println!("  {}  {}", p.name, p.description);
+            outln!("  {}  {}", p.name, p.description);
         }
     }
     if !resources.is_empty() {
-        println!("\nResources ({}):", resources.len());
+        outln!("\nResources ({}):", resources.len());
         for r in &resources {
-            println!("  {}  {}", r.uri, r.name);
+            outln!("  {}  {}", r.uri, r.name);
         }
     }
     Ok(())

@@ -251,3 +251,95 @@ async fn the_database_url_file_wins_and_the_version_and_metrics_are_reported() {
     let err = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(err.contains("cannot read the database URL file") && err.contains("missing"), "{err}");
 }
+
+/// Starts `trunks start` in `mode` with its own defaults for the listen address and the log
+/// format, sends one request, stops it and returns what it wrote to standard output.
+async fn output_of_a_default_start(mode: &str, port: u16) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let out_path = dir.path().join("server.out");
+    let mut server = Command::new(bin())
+        .arg("start")
+        .env_remove("TRUNKS_BIND_HOST")
+        .env("TRUNKS_MODE", mode)
+        .env("TRUNKS_PORT", port.to_string())
+        .env("TRUNKS_DATABASE_URL", format!("sqlite://{}/t.db", dir.path().display()))
+        .env("TRUNKS_LOG", "info")
+        .env("NO_COLOR", "1")
+        .stdout(std::fs::File::create(&out_path).unwrap())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let http = reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap();
+    let health = format!("http://127.0.0.1:{port}/health");
+    let mut up = false;
+    for _ in 0..100 {
+        if http.get(&health).send().await.is_ok() {
+            up = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    server.kill().unwrap();
+    let _ = server.wait();
+    let output = std::fs::read_to_string(&out_path).unwrap();
+    assert!(up, "the {mode} server never answered on 127.0.0.1:\n{output}");
+    output
+}
+
+/// Development mode has no authentication, so by default it listens on this machine only
+/// and writes for a person. Enterprise mode listens everywhere and writes JSON, one object
+/// per line and nothing else, for whatever collects the logs.
+#[tokio::test]
+async fn the_listen_address_and_the_log_format_follow_the_mode() {
+    let port = free_port().await;
+    let output = output_of_a_default_start("development", port).await;
+    assert!(
+        output.contains(&format!("Trunks HTTP server listening on 127.0.0.1:{port}")),
+        "{output}"
+    );
+    let logged = output.lines().find(|l| l.contains("GET") && l.contains("/health"));
+    let logged = logged.unwrap_or_else(|| panic!("no access log line:\n{output}"));
+    assert!(serde_json::from_str::<serde_json::Value>(logged).is_err(), "text, not JSON: {logged}");
+
+    let port = free_port().await;
+    let output = output_of_a_default_start("enterprise", port).await;
+    let events: Vec<serde_json::Value> = output
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("not JSON ({e}): {l}")))
+        .collect();
+    assert!(events.iter().all(|e| e["level"].is_string() && e["timestamp"].is_string()));
+    let message = |e: &serde_json::Value| e["fields"]["message"].as_str().unwrap_or("").to_owned();
+    let listening = events.iter().find(|e| message(e) == "Trunks HTTP server listening");
+    let listening = listening.unwrap_or_else(|| panic!("no listening event:\n{output}"));
+    assert_eq!(listening["fields"]["addr"], format!("0.0.0.0:{port}"));
+    assert!(
+        events
+            .iter()
+            .any(|e| e["level"] == "WARN" && message(e).contains("Server is not initialized")),
+        "{output}"
+    );
+    assert!(
+        events.iter().any(|e| e.to_string().contains("/health")),
+        "the access log is JSON too:\n{output}"
+    );
+}
+
+/// `trunks list tools | head`: the reader goes away while the command still has lines to
+/// print. That is not an error, and certainly not a panic.
+#[test]
+fn a_closed_output_pipe_ends_a_command_quietly() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = Command::new(bin())
+        .args(["--registry", "http://127.0.0.1:1", "version"])
+        .env("TRUNKS_CONFIG", dir.path().join("config.toml"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let out = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{:?}: {stderr}", out.status);
+    assert!(stderr.is_empty(), "nothing to report: {stderr}");
+}

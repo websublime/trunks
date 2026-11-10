@@ -1,4 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+// The commands print with `outln!`, which survives a closed pipe; `println!` does not.
+#![warn(clippy::print_stdout)]
 
 //! `trunks` — the single binary: `trunks start` runs the gateway; every other
 //! subcommand is a client of its REST API.
@@ -6,6 +8,7 @@
 mod commands;
 mod config;
 mod envsubst;
+mod out;
 mod version;
 
 #[cfg(test)]
@@ -14,6 +17,7 @@ mod cli_parsing;
 mod cli_reference;
 
 use clap::{Parser, Subcommand};
+use out::outln;
 use secrecy::SecretString;
 use snafu::{ResultExt, Whatever};
 
@@ -136,13 +140,13 @@ async fn run(cli: Cli) -> Result<(), Whatever> {
         Command::Update(args) => commands::identities::update(&client, args).await,
         Command::Delete(args) => commands::identities::delete(&client, args).await,
         Command::Version => {
-            println!("{BANNER}");
-            println!("CLI Version: {}", version::build_version());
+            outln!("{BANNER}");
+            outln!("CLI Version: {}", version::build_version());
             match tokio::time::timeout(std::time::Duration::from_secs(5), client.metadata()).await {
-                Ok(Ok(m)) => println!("Server Version: {}", m.version),
-                _ => println!("Couldn't retrieve Server version at this time"),
+                Ok(Ok(m)) => outln!("Server Version: {}", m.version),
+                _ => outln!("Couldn't retrieve Server version at this time"),
             }
-            println!("Server URL: {registry}");
+            outln!("Server URL: {registry}");
             Ok(())
         }
     }

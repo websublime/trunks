@@ -1,5 +1,6 @@
 //! `trunks invoke <tool> --input '{...}'`
 
+use crate::out::outln;
 use base64::Engine as _;
 use clap::Args as ClapArgs;
 use snafu::{ResultExt, Whatever};
@@ -68,14 +69,14 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
     let result =
         client.invoke_tool(&args.name, arguments).await.whatever_context("invoking tool")?;
     if result.is_error == Some(true) {
-        println!("The tool returned an error:");
+        outln!("The tool returned an error:");
     } else {
-        println!("Response from tool:");
+        outln!("Response from tool:");
     }
     for item in &result.content {
         match item["type"].as_str().unwrap_or("") {
-            "text" => println!("{}", item["text"].as_str().unwrap_or("")),
-            "resource_link" => println!(
+            "text" => outln!("{}", item["text"].as_str().unwrap_or("")),
+            "resource_link" => outln!(
                 "[resource_link] {} {}",
                 item["uri"].as_str().unwrap_or(""),
                 item["name"].as_str().unwrap_or("")
@@ -86,15 +87,15 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
                     item["mimeType"].as_str(),
                     item["data"].as_str().unwrap_or(""),
                 )?;
-                println!("[{kind}] saved to {}", path.display());
+                outln!("[{kind}] saved to {}", path.display());
             }
             "resource" => {
                 let res = &item["resource"];
                 if let Some(t) = res["text"].as_str() {
-                    println!("[resource {}]\n{t}", res["uri"].as_str().unwrap_or(""));
+                    outln!("[resource {}]\n{t}", res["uri"].as_str().unwrap_or(""));
                 } else if let Some(b) = res["blob"].as_str() {
                     let path = save_blob("resource", res["mimeType"].as_str(), b)?;
-                    println!(
+                    outln!(
                         "[resource {}] saved to {}",
                         res["uri"].as_str().unwrap_or(""),
                         path.display()
@@ -102,12 +103,12 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
                 }
             }
             other => {
-                println!("[{other}] {}", serde_json::to_string_pretty(item).unwrap_or_default());
+                outln!("[{other}] {}", serde_json::to_string_pretty(item).unwrap_or_default());
             }
         }
     }
     if let Some(sc) = &result.structured_content {
-        println!("\nStructured content:\n{}", serde_json::to_string_pretty(sc).unwrap_or_default());
+        outln!("\nStructured content:\n{}", serde_json::to_string_pretty(sc).unwrap_or_default());
     }
     Ok(())
 }

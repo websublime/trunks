@@ -28,10 +28,9 @@ Options:
           [env: TRUNKS_REGISTRY]
 
       --host <HOST>
-          Host to bind to (empty = all interfaces)
+          Host to bind to; empty = all interfaces [default: 127.0.0.1 in development mode, all interfaces in enterprise mode]
 
           [env: TRUNKS_BIND_HOST]
-          [default: ""]
 
       --mode <MODE>
           Operating mode: development | enterprise

@@ -1,5 +1,6 @@
 //! `trunks list servers|tools|prompts|resources`
 
+use crate::out::outln;
 use clap::{Args as ClapArgs, Subcommand};
 use comfy_table::{ContentArrangement, Table, presets::UTF8_FULL_CONDENSED};
 use snafu::{ResultExt, Whatever};
@@ -63,7 +64,7 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
         What::Servers => {
             let servers = client.list_servers().await.whatever_context("listing servers")?;
             if servers.is_empty() {
-                println!("No servers registered.");
+                outln!("No servers registered.");
                 return Ok(());
             }
             let mut t = table(&["name", "transport", "status", "session", "target", "description"]);
@@ -82,7 +83,7 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
                     s.description,
                 ]);
             }
-            println!("{t}");
+            outln!("{t}");
         }
         What::Groups => return super::groups::list(client).await,
         What::Tools { server, group } => {
@@ -93,27 +94,27 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
                 }
             };
             if tools.is_empty() {
-                println!("No tools found.");
+                outln!("No tools found.");
                 return Ok(());
             }
             let mut t = table(&["name", "status", "description"]);
             for x in tools {
                 t.add_row([x.name.to_string(), flag(x.enabled).into(), x.description]);
             }
-            println!("{t}");
+            outln!("{t}");
         }
         What::Prompts { server } => {
             let prompts =
                 client.list_prompts(server.as_deref()).await.whatever_context("listing prompts")?;
             if prompts.is_empty() {
-                println!("No prompts found.");
+                outln!("No prompts found.");
                 return Ok(());
             }
             let mut t = table(&["name", "status", "description"]);
             for x in prompts {
                 t.add_row([x.name.to_string(), flag(x.enabled).into(), x.description]);
             }
-            println!("{t}");
+            outln!("{t}");
         }
         What::Resources { server } => {
             let resources = client
@@ -121,7 +122,7 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
                 .await
                 .whatever_context("listing resources")?;
             if resources.is_empty() {
-                println!("No resources found.");
+                outln!("No resources found.");
                 return Ok(());
             }
             let mut t = table(&["uri", "name", "status", "mime", "description"]);
@@ -134,7 +135,7 @@ pub async fn run(client: &Client, args: Args) -> Result<(), Whatever> {
                     x.description,
                 ]);
             }
-            println!("{t}");
+            outln!("{t}");
         }
         What::Users => list_users(client).await?,
         What::McpClients => list_clients(client).await?,
@@ -150,14 +151,14 @@ async fn list_users(client: &Client) -> Result<(), Whatever> {
     for u in users {
         t.add_row([u.username, u.role.to_string()]);
     }
-    println!("{t}");
+    outln!("{t}");
     Ok(())
 }
 
 async fn list_clients(client: &Client) -> Result<(), Whatever> {
     let clients = client.list_clients().await.whatever_context("listing MCP clients")?;
     if clients.is_empty() {
-        println!("No MCP clients.");
+        outln!("No MCP clients.");
         return Ok(());
     }
     let mut t = table(&["name", "owner", "allowed servers", "description"]);
@@ -170,6 +171,6 @@ async fn list_clients(client: &Client) -> Result<(), Whatever> {
         let owner = c.owner.map(|o| format!("{}:{}", o.kind, o.name)).unwrap_or_default();
         t.add_row([c.name, owner, allow, c.description]);
     }
-    println!("{t}");
+    outln!("{t}");
     Ok(())
 }

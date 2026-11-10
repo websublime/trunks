@@ -51,6 +51,8 @@ First public version. Everything below is new.
 
 ### Operations
 
+- Development mode listens on `127.0.0.1` unless told otherwise; enterprise mode listens on
+  every interface and logs JSON, one object per line.
 - SQLite (default) or PostgreSQL; migrations are applied at start-up. The database URL
   can be read from a file (`TRUNKS_DATABASE_URL_FILE`) to keep it out of the environment.
 - `/health`, Prometheus metrics at `/metrics` (`trunks_tool_calls_total`,

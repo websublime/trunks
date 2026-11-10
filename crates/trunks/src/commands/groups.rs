@@ -1,5 +1,6 @@
 //! `trunks create|get|update|delete group` and `list groups`.
 
+use crate::out::outln;
 use clap::Args as ClapArgs;
 use snafu::{ResultExt, Whatever};
 use trunks_client::Client;
@@ -36,15 +37,15 @@ fn read_group(path: &std::path::Path) -> Result<ToolGroup, Whatever> {
 }
 
 fn print_group(g: &ToolGroup, endpoint: Option<&str>, registry: &str) {
-    println!("{}", g.name);
+    outln!("{}", g.name);
     if !g.description.is_empty() {
-        println!("  {}", g.description);
+        outln!("  {}", g.description);
     }
-    println!("  included tools:   {}", join(&g.included_tools));
-    println!("  included servers: {}", join(&g.included_servers));
-    println!("  excluded tools:   {}", join(&g.excluded_tools));
+    outln!("  included tools:   {}", join(&g.included_tools));
+    outln!("  included servers: {}", join(&g.included_servers));
+    outln!("  excluded tools:   {}", join(&g.excluded_tools));
     if let Some(e) = endpoint {
-        println!("  MCP endpoint:     {}{e}", registry.trim_end_matches('/'));
+        outln!("  MCP endpoint:     {}{e}", registry.trim_end_matches('/'));
     }
 }
 
@@ -55,12 +56,12 @@ fn join(l: &[String]) -> String {
 pub async fn create(client: &Client, registry: &str, args: FileArgs) -> Result<(), Whatever> {
     let group = read_group(&args.conf)?;
     let created = client.create_group(&group).await.whatever_context("creating tool group")?;
-    println!("Tool group {} created.", created.group.name);
+    outln!("Tool group {} created.", created.group.name);
     print_group(&created.group, Some(&created.streamable_http_endpoint), registry);
     let tools = client.group_tools(&created.group.name).await.whatever_context("listing tools")?;
-    println!("  effective tools ({}):", tools.len());
+    outln!("  effective tools ({}):", tools.len());
     for t in &tools {
-        println!("    {}", t.name);
+        outln!("    {}", t.name);
     }
     Ok(())
 }
@@ -69,9 +70,9 @@ pub async fn get(client: &Client, registry: &str, args: NameArgs) -> Result<(), 
     let g = client.get_group(&args.name).await.whatever_context("fetching tool group")?;
     print_group(&g.group, Some(&g.streamable_http_endpoint), registry);
     let tools = client.group_tools(&args.name).await.whatever_context("listing tools")?;
-    println!("  effective tools ({}):", tools.len());
+    outln!("  effective tools ({}):", tools.len());
     for t in &tools {
-        println!("    {}", t.name);
+        outln!("    {}", t.name);
     }
     Ok(())
 }
@@ -79,11 +80,11 @@ pub async fn get(client: &Client, registry: &str, args: NameArgs) -> Result<(), 
 pub async fn list(client: &Client) -> Result<(), Whatever> {
     let groups = client.list_groups().await.whatever_context("listing tool groups")?;
     if groups.is_empty() {
-        println!("No tool groups.");
+        outln!("No tool groups.");
         return Ok(());
     }
     for g in &groups {
-        println!(
+        outln!(
             "{}  tools: {}  servers: {}  excluded: {}",
             g.name,
             g.included_tools.len(),
@@ -100,10 +101,10 @@ pub async fn update(client: &Client, args: UpdateFileArgs) -> Result<(), Whateve
         client.update_group(&args.name, &group).await.whatever_context("updating tool group")?;
     let d = trunks_core::groups::diff(&r.old, &r.new);
     if d.is_empty() && r.old.description == r.new.description {
-        println!("No changes detected for tool group {}.", r.name);
+        outln!("No changes detected for tool group {}.", r.name);
         return Ok(());
     }
-    println!("Tool group {} updated.", r.name);
+    outln!("Tool group {} updated.", r.name);
     for (label, items) in [
         ("tools added", &d.added_tools),
         ("tools removed", &d.removed_tools),
@@ -113,17 +114,17 @@ pub async fn update(client: &Client, args: UpdateFileArgs) -> Result<(), Whateve
         ("exclusions removed", &d.removed_exclusions),
     ] {
         if !items.is_empty() {
-            println!("  {label}: {}", items.join(", "));
+            outln!("  {label}: {}", items.join(", "));
         }
     }
     if r.old.description != r.new.description {
-        println!("  description: {:?} -> {:?}", r.old.description, r.new.description);
+        outln!("  description: {:?} -> {:?}", r.old.description, r.new.description);
     }
     Ok(())
 }
 
 pub async fn delete(client: &Client, args: NameArgs) -> Result<(), Whatever> {
     client.delete_group(&args.name).await.whatever_context("deleting tool group")?;
-    println!("Tool group {} deleted.", args.name);
+    outln!("Tool group {} deleted.", args.name);
     Ok(())
 }

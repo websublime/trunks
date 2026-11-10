@@ -1,5 +1,6 @@
 //! `trunks deregister`, `trunks enable|disable`, `trunks export`, `trunks get`.
 
+use crate::out::outln;
 use clap::{Args as ClapArgs, Subcommand};
 use snafu::{ResultExt, Whatever};
 use trunks_client::Client;
@@ -12,7 +13,7 @@ pub struct DeregisterArgs {
 
 pub async fn deregister(client: &Client, args: DeregisterArgs) -> Result<(), Whatever> {
     client.deregister_server(&args.name).await.whatever_context("deregistering server")?;
-    println!("Server {} deregistered successfully!", args.name);
+    outln!("Server {} deregistered successfully!", args.name);
     Ok(())
 }
 
@@ -36,9 +37,9 @@ enum ToggleWhat {
 
 fn print_list(label: &str, items: &[String]) {
     if !items.is_empty() {
-        println!("{label} ({}):", items.len());
+        outln!("{label} ({}):", items.len());
         for i in items {
-            println!("  {i}");
+            outln!("  {i}");
         }
     }
 }
@@ -49,7 +50,7 @@ pub async fn toggle(client: &Client, args: ToggleArgs, enabled: bool) -> Result<
     let (kind, entity) = match args.what {
         ToggleWhat::Server { name } => {
             let r = client.set_server_enabled(&name, enabled).await.whatever_context(ctx)?;
-            println!("Server {name} {verb}.");
+            outln!("Server {name} {verb}.");
             print_list("Tools affected", &r.tools_affected);
             print_list("Prompts affected", &r.prompts_affected);
             print_list("Resources affected", &r.resources_affected);
@@ -66,7 +67,7 @@ pub async fn toggle(client: &Client, args: ToggleArgs, enabled: bool) -> Result<
         _ => r.resources_affected,
     };
     if affected.is_empty() {
-        println!("No {kind} changed state.");
+        outln!("No {kind} changed state.");
     } else {
         print_list(&format!("{} {verb}", capitalize(kind)), &affected);
     }
@@ -106,7 +107,7 @@ pub async fn export(client: &Client, args: ExportArgs) -> Result<(), Whatever> {
         let path = dir.join(format!("{}.json", s.name));
         let json = serde_json::to_string_pretty(s).whatever_context("serializing")?;
         std::fs::write(&path, json).whatever_context(format!("writing {}", path.display()))?;
-        println!("wrote {}", path.display());
+        outln!("wrote {}", path.display());
     }
     let gdir = args.dir.join("groups");
     std::fs::create_dir_all(&gdir).whatever_context(format!("creating {}", gdir.display()))?;
@@ -114,15 +115,15 @@ pub async fn export(client: &Client, args: ExportArgs) -> Result<(), Whatever> {
         let path = gdir.join(format!("{}.json", g.name));
         let json = serde_json::to_string_pretty(g).whatever_context("serializing")?;
         std::fs::write(&path, json).whatever_context(format!("writing {}", path.display()))?;
-        println!("wrote {}", path.display());
+        outln!("wrote {}", path.display());
     }
-    println!(
+    outln!(
         "Exported {} server(s) and {} tool group(s) to {}",
         servers.len(),
         groups.len(),
         args.dir.display()
     );
-    println!("Warning: the exported files contain credentials. Keep them private.");
+    outln!("Warning: the exported files contain credentials. Keep them private.");
     Ok(())
 }
 
@@ -166,7 +167,7 @@ pub async fn get(client: &Client, registry: &str, args: GetArgs) -> Result<(), W
             }
             let r = client.render_prompt(&name, map).await.whatever_context("rendering prompt")?;
             if let Some(d) = &r.description {
-                println!("{d}\n");
+                outln!("{d}\n");
             }
             for m in &r.messages {
                 let role = m["role"].as_str().unwrap_or("?");
@@ -174,7 +175,7 @@ pub async fn get(client: &Client, registry: &str, args: GetArgs) -> Result<(), W
                     || serde_json::to_string_pretty(&m["content"]).unwrap_or_default(),
                     str::to_owned,
                 );
-                println!("[{role}]\n{text}\n");
+                outln!("[{role}]\n{text}\n");
             }
         }
         GetWhat::Resource { uri, read } => {
@@ -182,14 +183,14 @@ pub async fn get(client: &Client, registry: &str, args: GetArgs) -> Result<(), W
                 let r = client.read_resource(&uri).await.whatever_context("reading resource")?;
                 for c in &r.contents {
                     if let Some(t) = c["text"].as_str() {
-                        println!("{t}");
+                        outln!("{t}");
                     } else if let Some(b) = c["blob"].as_str() {
                         let path = crate::commands::invoke::save_blob(
                             "resource",
                             c["mimeType"].as_str(),
                             b,
                         )?;
-                        println!("Saved binary contents to {}", path.display());
+                        outln!("Saved binary contents to {}", path.display());
                     }
                 }
             } else {
@@ -197,12 +198,12 @@ pub async fn get(client: &Client, registry: &str, args: GetArgs) -> Result<(), W
                 let Some(r) = all.iter().find(|r| r.uri.to_string() == uri) else {
                     snafu::whatever!("resource '{uri}' not found");
                 };
-                println!("{}\n  server: {}\n  name: {}", r.uri, r.server, r.name);
+                outln!("{}\n  server: {}\n  name: {}", r.uri, r.server, r.name);
                 if let Some(m) = &r.mime_type {
-                    println!("  mime type: {m}");
+                    outln!("  mime type: {m}");
                 }
                 if !r.description.is_empty() {
-                    println!("  {}", r.description);
+                    outln!("  {}", r.description);
                 }
             }
         }
@@ -227,7 +228,7 @@ pub async fn oauth_complete(client: &Client, args: OAuthCompleteArgs) -> Result<
         .await
         .whatever_context("completing the OAuth authorization")?;
     match r.server {
-        Some(s) => println!("Server {} registered successfully!", s.name),
+        Some(s) => outln!("Server {} registered successfully!", s.name),
         None => snafu::whatever!("the server did not return the registered server"),
     }
     Ok(())
