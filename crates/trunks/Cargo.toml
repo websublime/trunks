@@ -50,6 +50,11 @@ url = { workspace = true }
 name = "conformance"
 path = "tests/conformance/main.rs"
 
+# `cargo bench -p trunks --bench gateway` — the numbers published in docs/07-desempenho.md.
+[[bench]]
+name = "gateway"
+harness = false
+
 [lints]
 workspace = true
 

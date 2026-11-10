@@ -2,7 +2,8 @@
 
 Trunks is a self-hosted MCP gateway and registry in Rust. Read `docs/` before non-trivial
 changes: `01-produto.md` (decisions D1–D12), `02-especificacao.md` (contracts and modules),
-`03-plano.md` (phases), `04-arquitectura.md`, `05-roadmap.md`, `06-analise-db.md` (data layer rules).
+`03-plano.md` (phases), `04-arquitectura.md`, `05-roadmap.md`, `06-analise-db.md` (data layer rules),
+`07-desempenho.md` (benchmark results and how to reproduce them).
 Explicit task instructions take precedence over this file.
 
 ## Principles

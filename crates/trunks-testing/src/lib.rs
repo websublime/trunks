@@ -5,6 +5,10 @@
 //! Tools: `echo` (returns its `text` argument), `echo_headers` (returns the HTTP headers the
 //! upstream saw — proves nothing downstream leaks through the gateway), `fail` (returns an
 //! MCP tool error). Prompt: `greet(name)`. Resource: `mem://hello`.
+//!
+//! With `FAKE_UPSTREAM_EXTRA_TOOLS=<n>` in its environment it also lists `n` generated tools
+//! (`bulk_000`, `bulk_001`, …) with a realistic description and input schema, to build large
+//! catalogs for the benchmarks. They are listed only; calling one is an error.
 
 pub mod oauth;
 pub mod oidc;
@@ -59,7 +63,7 @@ impl ServerHandler for FakeUpstream {
             ),
         );
         echo.annotations = serde_json::from_value(serde_json::json!({"readOnlyHint": true})).ok();
-        let tools = vec![
+        let mut tools = vec![
             echo,
             Tool::new(
                 "echo_headers",
@@ -68,6 +72,25 @@ impl ServerHandler for FakeUpstream {
             ),
             Tool::new("fail", "Always returns a tool error", schema(&serde_json::json!({}))),
         ];
+        let extra = std::env::var("FAKE_UPSTREAM_EXTRA_TOOLS")
+            .ok()
+            .and_then(|n| n.parse::<usize>().ok())
+            .unwrap_or(0);
+        tools.extend((0..extra).map(|i| {
+            Tool::new(
+                format!("bulk_{i:03}"),
+                format!(
+                    "Generated tool {i}: searches the records of collection {i} and returns \
+                     the matching entries, most recent first"
+                ),
+                schema(&serde_json::json!({
+                    "query": {"type": "string", "description": "Full-text query"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "cursor": {"type": "string", "description": "Opaque pagination cursor"},
+                    "include_archived": {"type": "boolean"},
+                })),
+            )
+        }));
         Ok(ListToolsResult { tools, ..Default::default() })
     }
 
@@ -185,6 +208,11 @@ pub async fn serve_http() -> String {
     let listener =
         tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await.unwrap();
     let addr = listener.local_addr().unwrap();
+    // No Nagle delay on the upstream's side either: it would add ~40 ms to every answer and
+    // drown what the tests and the benchmarks measure.
+    let listener = axum::serve::ListenerExt::tap_io(listener, |tcp| {
+        let _ = tcp.set_nodelay(true);
+    });
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     format!("http://{addr}/mcp")
 }
