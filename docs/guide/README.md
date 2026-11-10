@@ -1,3 +1,5 @@
+<p align="center"><img src="../assets/logo.jpg" alt="Trunks" width="420"></p>
+
 # Trunks guide
 
 Trunks puts all your MCP servers behind one endpoint. You register each server once; MCP

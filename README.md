@@ -1,3 +1,5 @@
+![Trunks: one hub in front of all your MCP servers](docs/assets/banner.jpg)
+
 # Trunks
 
 **Run all your MCP servers behind one endpoint.**
