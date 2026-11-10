@@ -30,7 +30,7 @@ async fn postgres_from_fixture() -> Option<(Db, String, String)> {
     let admin_url = std::env::var("TRUNKS_TEST_PG_URL").ok()?;
     let name = format!("trunks_t_{}", std::process::id() ^ rand_u32());
     let admin = Db::connect(&admin_url, 1).await.unwrap();
-    with_pool!(&admin, |p| sqlx::raw_sql(&format!("CREATE DATABASE {name}"))
+    with_pool!(&admin, |p| sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
         .execute(p)
         .await
         .map(|_| ())
@@ -39,7 +39,11 @@ async fn postgres_from_fixture() -> Option<(Db, String, String)> {
     let url = format!("{base}/{name}");
     let db = Db::connect(&url, 2).await.unwrap();
     let sql = std::fs::read_to_string(fixtures().join("legacy-enterprise.sql")).unwrap();
-    with_pool!(&db, |p| sqlx::raw_sql(&sql).execute(p).await.map(|_| ()).unwrap());
+    with_pool!(&db, |p| sqlx::raw_sql(sqlx::AssertSqlSafe(sql.clone()))
+        .execute(p)
+        .await
+        .map(|_| ())
+        .unwrap());
     Some((db, admin_url, name))
 }
 
@@ -50,11 +54,13 @@ fn rand_u32() -> u32 {
 
 async fn drop_pg(admin_url: &str, name: &str) {
     let admin = Db::connect(admin_url, 1).await.unwrap();
-    with_pool!(&admin, |p| sqlx::raw_sql(&format!("DROP DATABASE {name} WITH (FORCE)"))
-        .execute(p)
-        .await
-        .map(|_| ())
-        .unwrap());
+    with_pool!(&admin, |p| sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP DATABASE {name} WITH (FORCE)"
+    )))
+    .execute(p)
+    .await
+    .map(|_| ())
+    .unwrap());
 }
 
 /// The checks every backend must pass on the enterprise fixture.

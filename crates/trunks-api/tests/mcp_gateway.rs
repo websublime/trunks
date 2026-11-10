@@ -43,14 +43,14 @@ async fn boot(mode: ServerMode) -> (String, Option<String>, tempfile::TempDir) {
         )
     };
     trunks_db::with_pool!(&db, |p| {
-        sqlx::raw_sql(&seed("alpha")).execute(p).await.unwrap();
-        sqlx::raw_sql(&seed("beta")).execute(p).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(seed("alpha"))).execute(p).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(seed("beta"))).execute(p).await.unwrap();
         for (sid, srv) in [(1, "alpha"), (2, "beta")] {
             for t in ["echo", "echo_headers", "fail"] {
-                sqlx::raw_sql(&format!("INSERT INTO tools (created_at, updated_at, name, enabled, description, server_id) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','{t}',1,'',{sid})")).execute(p).await.unwrap();
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!("INSERT INTO tools (created_at, updated_at, name, enabled, description, server_id) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','{t}',1,'',{sid})"))).execute(p).await.unwrap();
             }
-            sqlx::raw_sql(&format!("INSERT INTO prompts (created_at, updated_at, name, enabled, description, server_id) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','greet',1,'',{sid})")).execute(p).await.unwrap();
-            sqlx::raw_sql(&format!("INSERT INTO resources (created_at, updated_at, uri, original_uri, name, enabled, server_id) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','trunks://res/{srv}/bWVtOi8vaGVsbG8','mem://hello','hello',1,{sid})")).execute(p).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("INSERT INTO prompts (created_at, updated_at, name, enabled, description, server_id) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','greet',1,'',{sid})"))).execute(p).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("INSERT INTO resources (created_at, updated_at, uri, original_uri, name, enabled, server_id) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','trunks://res/{srv}/bWVtOi8vaGVsbG8','mem://hello','hello',1,{sid})"))).execute(p).await.unwrap();
         }
         sqlx::raw_sql("INSERT INTO tool_groups (created_at, updated_at, name, description, included_tools) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','only-alpha-echo','',json('[\"alpha__echo\"]'))").execute(p).await.unwrap();
         sqlx::raw_sql("INSERT INTO mcp_clients (created_at, updated_at, name, description, access_token, allow_list) VALUES ('2026-01-01 00:00:00','2026-01-01 00:00:00','cli-alpha','','tok-alpha-0123456789',json('[\"alpha\"]'))").execute(p).await.unwrap();

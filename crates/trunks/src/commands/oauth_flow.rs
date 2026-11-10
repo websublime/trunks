@@ -114,7 +114,7 @@ pub async fn finish(
     );
     open_browser(&auth.authorization_url);
     let remaining =
-        (auth.expires_at - chrono::Utc::now()).to_std().unwrap_or(Duration::from_secs(60));
+        (auth.expires_at - chrono::Utc::now()).to_std().unwrap_or(Duration::from_mins(1));
     println!(
         "Waiting for the authorization callback (session {} expires at {})…",
         auth.session_id,

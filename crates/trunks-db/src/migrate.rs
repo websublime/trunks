@@ -12,6 +12,9 @@ use crate::{Db, Result, error};
 static SQLITE: Migrator = sqlx::migrate!("./migrations/sqlite");
 static POSTGRES: Migrator = sqlx::migrate!("./migrations/postgres");
 
+/// sqlx's default bookkeeping table (the migrators are built with the default).
+const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
+
 /// What `run` did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Applied {
@@ -47,7 +50,7 @@ where
 {
     use sqlx::migrate::Migrate as _;
     let mut conn = pool.acquire().await?;
-    conn.ensure_migrations_table().await.context(error::MigrateSnafu)?;
-    let list = conn.list_applied_migrations().await.context(error::MigrateSnafu)?;
+    conn.ensure_migrations_table(MIGRATIONS_TABLE).await.context(error::MigrateSnafu)?;
+    let list = conn.list_applied_migrations(MIGRATIONS_TABLE).await.context(error::MigrateSnafu)?;
     Ok(list.into_iter().map(|m| m.version).collect())
 }

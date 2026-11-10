@@ -260,7 +260,7 @@ pub async fn set_resources_enabled(
 
 async fn flip(
     db: &Db,
-    sql: &str,
+    sql: &'static str,
     server_id: i64,
     key: Option<&str>,
     enabled: bool,

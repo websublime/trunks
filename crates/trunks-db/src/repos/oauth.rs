@@ -7,12 +7,15 @@ use sqlx::types::Json;
 use crate::rows::{OAuthPendingRow, OAuthTokenRow};
 use crate::{Db, Result, with_pool};
 
-const TOKEN_COLS: &str =
-    "id, server_name, transport, client_id, client_secret, redirect_uri, scopes,
-                          access_token, token_type, refresh_token, scope, expires_at, issuer";
-const PENDING_COLS: &str =
-    "id, session_id, server_name, transport, server_input, force, redirect_uri, client_id,
-                            client_secret, scopes, state, code_verifier, expires_at, initiated_by";
+// One literal SQL string per operation (D11); sqlx requires `&'static str` for unaudited SQL.
+const TOKEN_BY_SERVER: &str = "SELECT id, server_name, transport, client_id, client_secret, redirect_uri, scopes, access_token, token_type, refresh_token, scope, expires_at, issuer
+     FROM upstream_oauth_tokens WHERE server_name = $1 AND deleted_at IS NULL";
+const PENDING_ALL: &str = "SELECT id, session_id, server_name, transport, server_input, force, redirect_uri, client_id, client_secret, scopes, state, code_verifier, expires_at, initiated_by
+     FROM upstream_oauth_pending_sessions WHERE deleted_at IS NULL ORDER BY id";
+const PENDING_BY_SESSION: &str = "SELECT id, session_id, server_name, transport, server_input, force, redirect_uri, client_id, client_secret, scopes, state, code_verifier, expires_at, initiated_by
+     FROM upstream_oauth_pending_sessions WHERE session_id = $1 AND deleted_at IS NULL";
+const PENDING_BY_STATE: &str = "SELECT id, session_id, server_name, transport, server_input, force, redirect_uri, client_id, client_secret, scopes, state, code_verifier, expires_at, initiated_by
+     FROM upstream_oauth_pending_sessions WHERE state = $1 AND deleted_at IS NULL";
 
 /// Everything persisted for one upstream's OAuth client and tokens.
 #[derive(Debug, Clone, Default)]
@@ -47,10 +50,10 @@ pub struct OAuthPendingWrite {
 }
 
 pub async fn token_by_server(db: &Db, server_name: &str) -> Result<Option<OAuthTokenRow>> {
-    let sql = format!(
-        "SELECT {TOKEN_COLS} FROM upstream_oauth_tokens WHERE server_name = $1 AND deleted_at IS NULL"
-    );
-    Ok(with_pool!(db, |p| sqlx::query_as(&sql).bind(server_name).fetch_optional(p).await?))
+    Ok(with_pool!(db, |p| sqlx::query_as(TOKEN_BY_SERVER)
+        .bind(server_name)
+        .fetch_optional(p)
+        .await?))
 }
 
 /// Inserts or fully replaces the row of `server_name` (one transaction).
@@ -116,24 +119,18 @@ pub async fn delete_token(db: &Db, server_name: &str) -> Result<()> {
 }
 
 pub async fn pending_sessions(db: &Db) -> Result<Vec<OAuthPendingRow>> {
-    let sql = format!(
-        "SELECT {PENDING_COLS} FROM upstream_oauth_pending_sessions WHERE deleted_at IS NULL ORDER BY id"
-    );
-    Ok(with_pool!(db, |p| sqlx::query_as(&sql).fetch_all(p).await?))
+    Ok(with_pool!(db, |p| sqlx::query_as(PENDING_ALL).fetch_all(p).await?))
 }
 
 pub async fn pending_by_session(db: &Db, session_id: &str) -> Result<Option<OAuthPendingRow>> {
-    let sql = format!(
-        "SELECT {PENDING_COLS} FROM upstream_oauth_pending_sessions WHERE session_id = $1 AND deleted_at IS NULL"
-    );
-    Ok(with_pool!(db, |p| sqlx::query_as(&sql).bind(session_id).fetch_optional(p).await?))
+    Ok(with_pool!(db, |p| sqlx::query_as(PENDING_BY_SESSION)
+        .bind(session_id)
+        .fetch_optional(p)
+        .await?))
 }
 
 pub async fn pending_by_state(db: &Db, state: &str) -> Result<Option<OAuthPendingRow>> {
-    let sql = format!(
-        "SELECT {PENDING_COLS} FROM upstream_oauth_pending_sessions WHERE state = $1 AND deleted_at IS NULL"
-    );
-    Ok(with_pool!(db, |p| sqlx::query_as(&sql).bind(state).fetch_optional(p).await?))
+    Ok(with_pool!(db, |p| sqlx::query_as(PENDING_BY_STATE).bind(state).fetch_optional(p).await?))
 }
 
 /// Replaces any pending session of the same server (one transaction).

@@ -15,10 +15,10 @@ pub async fn get(db: &Db) -> Result<Option<ServerConfigRow>> {
 
 /// Inserts the configuration row when none exists. Returns `true` when it was created.
 pub async fn init(db: &Db, mode: ServerMode) -> Result<bool> {
-    if let Some(row) = get(db).await? {
-        if row.initialized {
-            return Ok(false);
-        }
+    if let Some(row) = get(db).await?
+        && row.initialized
+    {
+        return Ok(false);
     }
     let now = chrono::Utc::now();
     with_pool!(db, |p| sqlx::query(INSERT)

@@ -9,6 +9,7 @@ const TEAMS: &str =
     "SELECT id, name, description FROM teams WHERE deleted_at IS NULL ORDER BY name";
 const TEAM_BY_NAME: &str =
     "SELECT id, name, description FROM teams WHERE name = $1 AND deleted_at IS NULL";
+const TEAM_ID_BY_NAME: &str = "SELECT id FROM teams WHERE name = $1 AND deleted_at IS NULL";
 const TEAM_BY_ID: &str =
     "SELECT id, name, description FROM teams WHERE id = $1 AND deleted_at IS NULL";
 const INSERT_TEAM: &str = "INSERT INTO teams (created_at, updated_at, name, description) VALUES ($1, $1, $2, $3) RETURNING id, name, description";
@@ -76,10 +77,7 @@ pub async fn delete_team(db: &Db, name: &str) -> Result<bool> {
     with_pool!(db, |p| {
         let mut tx = p.begin().await?;
         let id: Option<i64> =
-            sqlx::query_scalar(TEAM_BY_NAME.replace("id, name, description", "id").as_str())
-                .bind(name)
-                .fetch_optional(&mut *tx)
-                .await?;
+            sqlx::query_scalar(TEAM_ID_BY_NAME).bind(name).fetch_optional(&mut *tx).await?;
         let Some(id) = id else {
             tx.rollback().await?;
             return Ok(false);

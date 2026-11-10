@@ -234,7 +234,7 @@ impl RegistryService {
 
     fn remember_completed(&self, session_id: &str, server: &ServerName) {
         let now = std::time::Instant::now();
-        let ttl = std::time::Duration::from_secs(60 * 60);
+        let ttl = std::time::Duration::from_hours(1);
         self.completed_oauth.retain(|_, (_, at)| now.duration_since(*at) < ttl);
         self.completed_oauth.insert(session_id.to_owned(), (server.clone(), now));
     }
