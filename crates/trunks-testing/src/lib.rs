@@ -208,6 +208,11 @@ pub async fn serve_http() -> String {
     let listener =
         tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await.unwrap();
     let addr = listener.local_addr().unwrap();
+    // No Nagle delay on the upstream's side either: it would add ~40 ms to every answer and
+    // drown what the tests and the benchmarks measure.
+    let listener = axum::serve::ListenerExt::tap_io(listener, |tcp| {
+        let _ = tcp.set_nodelay(true);
+    });
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     format!("http://{addr}/mcp")
 }

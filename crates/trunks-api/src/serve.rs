@@ -81,6 +81,12 @@ pub async fn serve(
                 }
             },
         };
+        // MCP answers are streamed: the response head and the first event are separate small
+        // writes. With Nagle's algorithm the second one waits for the client's (delayed)
+        // acknowledgement of the first, which adds about 40 ms to every small response.
+        if let Err(e) = stream.set_nodelay(true) {
+            tracing::debug!(error = %e, "could not disable Nagle's algorithm on a connection");
+        }
         let service = TowerToHyperService::new(app.clone());
         let builder = builder.clone();
         let watcher = graceful.watcher();
