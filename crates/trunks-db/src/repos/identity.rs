@@ -13,7 +13,6 @@ const CLIENT_BY_TOKEN: &str = "SELECT id, name, description, access_token, allow
 const USER_BY_NAME: &str =
     "SELECT id, username, role, access_token FROM users WHERE username = $1 AND deleted_at IS NULL";
 const UPDATE_USER_TOKEN: &str = "UPDATE users SET access_token = $1, updated_at = $2 WHERE username = $3 AND deleted_at IS NULL";
-const DELETE_USER: &str = "DELETE FROM users WHERE username = $1 AND deleted_at IS NULL";
 const CLIENT_BY_NAME: &str = "SELECT id, name, description, access_token, allow_list, owner_kind, owner_id FROM mcp_clients WHERE name = $1 AND deleted_at IS NULL";
 const USER_BY_ID: &str =
     "SELECT id, username, role, access_token FROM users WHERE id = $1 AND deleted_at IS NULL";
@@ -67,13 +66,44 @@ pub async fn update_user_token(db: &Db, username: &str, token: &str) -> Result<b
     Ok(n > 0)
 }
 
+/// Deletes the user and everything that only makes sense with them: sessions, team
+/// memberships, grants to the user, and the MCP clients they own. One transaction.
 pub async fn delete_user(db: &Db, username: &str) -> Result<bool> {
-    let n = with_pool!(db, |p| sqlx::query(DELETE_USER)
-        .bind(username)
-        .execute(p)
-        .await?
-        .rows_affected());
-    Ok(n > 0)
+    with_pool!(db, |p| {
+        let mut tx = p.begin().await?;
+        let id: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND deleted_at IS NULL")
+                .bind(username)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some(id) = id else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+        let result: Result<()> = async {
+            for sql in [
+                "DELETE FROM sessions WHERE user_id = $1",
+                "DELETE FROM team_members WHERE user_id = $1",
+                "DELETE FROM access_grants WHERE subject_kind = 'user' AND subject_id = $1",
+                "DELETE FROM mcp_clients WHERE owner_kind = 'user' AND owner_id = $1",
+                "DELETE FROM users WHERE id = $1",
+            ] {
+                sqlx::query(sql).bind(id).execute(&mut *tx).await?;
+            }
+            Ok(())
+        }
+        .await;
+        match result {
+            Ok(()) => {
+                tx.commit().await?;
+                Ok(true)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
+    })
 }
 
 pub async fn client_by_name(db: &Db, name: &str) -> Result<Option<McpClientRow>> {

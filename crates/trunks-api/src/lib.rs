@@ -51,6 +51,7 @@ pub fn router(state: AppState) -> Router {
 
     let mut app = Router::new()
         .merge(routes::public::router())
+        .merge(routes::auth::router())
         .merge(mcp::router(&state))
         .nest("/api/v0", api_v0)
         .nest("/api/dashboard", dashboard);

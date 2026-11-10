@@ -319,3 +319,50 @@ pub trait AccessStore: Send + Sync + 'static {
         target: (TargetKind, &str),
     ) -> Result<bool>;
 }
+
+/// An in-flight OIDC login (between the redirect to the IdP and its callback).
+#[derive(Debug, Clone)]
+pub struct LoginState {
+    pub state: String,
+    pub nonce: String,
+    pub code_verifier: SecretString,
+    /// Relative path to send the browser to after a successful login.
+    pub return_to: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Browser sessions and OIDC identities (D16).
+#[async_trait]
+pub trait SessionStore: Send + Sync + 'static {
+    async fn user_by_oidc(&self, issuer: &str, subject: &str) -> Result<Option<UserRecord>>;
+    /// Creates a user bound to an external identity. Fails on a duplicate username.
+    async fn create_oidc_user(
+        &self,
+        username: &str,
+        role: Role,
+        token: &str,
+        issuer: &str,
+        subject: &str,
+    ) -> Result<UserRecord>;
+    async fn set_user_role(&self, user_id: i64, role: Role) -> Result<()>;
+    /// Makes the user's **claim-synced** memberships exactly `team_ids` (as `member`);
+    /// memberships added manually are never touched.
+    async fn sync_oidc_memberships(&self, user_id: i64, team_ids: &[i64]) -> Result<()>;
+
+    /// `id_hash` is the SHA-256 of the cookie value; the raw value is never stored.
+    async fn create_session(
+        &self,
+        id_hash: &str,
+        user_id: i64,
+        expires_at: DateTime<Utc>,
+    ) -> Result<()>;
+    /// The user of a live (unexpired) session.
+    async fn session_user(&self, id_hash: &str) -> Result<Option<UserRecord>>;
+    async fn delete_session(&self, id_hash: &str) -> Result<()>;
+    /// Removes expired sessions and login states. Returns how many rows went away.
+    async fn purge_expired_sessions(&self) -> Result<u64>;
+
+    async fn save_login_state(&self, state: &LoginState) -> Result<()>;
+    /// Single use: returns and deletes the state; `None` when unknown or expired.
+    async fn take_login_state(&self, state: &str) -> Result<Option<LoginState>>;
+}

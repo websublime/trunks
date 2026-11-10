@@ -9,3 +9,4 @@ pub mod groups;
 pub mod identity;
 pub mod oauth;
 pub mod registry;
+pub mod sessions;

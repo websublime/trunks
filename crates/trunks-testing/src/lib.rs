@@ -7,6 +7,7 @@
 //! MCP tool error). Prompt: `greet(name)`. Resource: `mem://hello`.
 
 pub mod oauth;
+pub mod oidc;
 
 use std::net::SocketAddr;
 use std::sync::Arc;

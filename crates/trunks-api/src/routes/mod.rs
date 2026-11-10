@@ -1,5 +1,6 @@
 pub mod access;
 pub mod admin;
+pub mod auth;
 pub mod dashboard;
 pub mod groups;
 pub mod identities;

@@ -67,7 +67,7 @@ async fn drop_pg(admin_url: &str, name: &str) {
 async fn assert_enterprise_fixture(db: &Db) {
     // migrations: baseline must be a no-op on legacy schema; all three versions applied
     let applied = db.migrate().await.unwrap();
-    assert_eq!(applied.versions, vec![1, 2, 3, 4, 5], "all migrations applied on first run");
+    assert_eq!(applied.versions, vec![1, 2, 3, 4, 5, 6], "all migrations applied on first run");
     assert_eq!(db.migrate().await.unwrap().versions, Vec::<i64>::new(), "second run is a no-op");
 
     // normalize_legacy
@@ -307,7 +307,7 @@ async fn sqlite_dev_fixture_has_no_identities() {
 async fn sqlite_fresh_database_initialises() {
     let dir = tempfile::tempdir().unwrap();
     let db = Db::connect(&format!("sqlite://{}/fresh.db", dir.path().display()), 2).await.unwrap();
-    assert_eq!(db.migrate().await.unwrap().versions, vec![1, 2, 3, 4, 5]);
+    assert_eq!(db.migrate().await.unwrap().versions, vec![1, 2, 3, 4, 5, 6]);
     let store = Store(db.clone());
     assert!(store.get().await.unwrap().is_none());
     assert!(store.init(ServerMode::Development).await.unwrap());

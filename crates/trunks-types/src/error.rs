@@ -29,11 +29,14 @@ pub mod messages {
     pub const COMMAND_REQUIRED: &str = "command is required for the stdio transport";
     pub const USERNAME_REQUIRED: &str = "username is required";
     pub const NOT_OWNER: &str = "you do not own this MCP client";
+    pub const CROSS_ORIGIN_REJECTED: &str =
+        "cross-origin request rejected: session-authenticated changes must come from this site";
+    pub const OIDC_NOT_CONFIGURED: &str = "OIDC login is not configured on this server";
     pub const INVALID_SUBJECT_KIND: &str = "subject_kind must be 'user' or 'team'";
     pub const INVALID_TARGET_KIND: &str = "target_kind must be 'server' or 'tool_group'";
     pub const INVALID_TEAM_ROLE: &str = "role must be 'maintainer' or 'member'";
     pub const GROUP_NO_TOOLS: &str = "the tool group resolves to no enabled tools; include at least one existing, enabled tool or server";
-    pub const ADMIN_CANNOT_BE_DELETED: &str = "the admin user cannot be deleted";
+    pub const ADMIN_CANNOT_BE_DELETED: &str = "the last administrator cannot be deleted";
     pub const INVALID_TOKEN_FORMAT: &str =
         "access token must be at least 8 characters long and contain no whitespace";
 }

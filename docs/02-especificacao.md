@@ -73,9 +73,9 @@ Nome do binário: `trunks` (D1).
 |---|---|---|---|
 | Runtime | `tokio` | 1.4x | `rt-multi-thread`, `signal`, `process` |
 | HTTP server | `axum` | 0.8 | + `tower`, `tower-http` (`trace`, `cors` desligado por defeito, `limit`) |
-| MCP | `rmcp` | 3.8 | features: `server`, `client`, `transport-streamable-http-server`, `transport-streamable-http-client-reqwest`, `transport-child-process`, `auth`, `schemars` |
-| HTTP client | `reqwest` | 0.13 | `rustls`, `json`, `stream` (versão exigida pelo `rmcp` 3.8) |
-| DB | `sqlx` | 0.8 | `runtime-tokio`, `tls-rustls`, `sqlite` (bundled), `postgres`, `json`, `chrono`, `migrate`, `macros`. Pools nativos atrás de `enum Db`; SQL escrito uma vez com `$N`; sem `query!` compile-time. Ver `06-analise-db.md` §5 |
+| MCP | `rmcp` | 3.9 | features: `server`, `client`, `transport-streamable-http-server`, `transport-streamable-http-client-reqwest`, `transport-child-process`, `auth`, `schemars` |
+| HTTP client | `reqwest` | 0.13 | `rustls`, `json`, `stream` (versão exigida pelo `rmcp` 3.9) |
+| DB | `sqlx` | 0.9 | `runtime-tokio`, `tls-rustls`, `sqlite` (bundled), `postgres`, `json`, `chrono`, `migrate`, `macros`. Pools nativos atrás de `enum Db`; SQL escrito uma vez com `$N`, sempre `&'static str` (o 0.9 recusa SQL construído em runtime); sem `query!` compile-time. Ver `06-analise-db.md` §5 |
 | CLI | `clap` | 4 | derive, `env` |
 | Serialização | `serde`, `serde_json` | — | `serde_json::Value` para JSON opaco (schemas, configs) |
 | Config | `dotenvy` | — | precedência implementada à mão (ver §9) |
@@ -85,6 +85,7 @@ Nome do binário: `trunks` (D1).
 | Secrets | `secrecy` | — | `SecretString` para tokens/bearers; `Debug` redigido |
 | Embed | `rust-embed` | — | dashboard |
 | Random/crypto | `rand`, `base64`, `sha2`, `hex` | — | tokens, PKCE, URIs |
+| JWT | `jsonwebtoken` | 11 | backend `aws_lc_rs` (o mesmo do `rustls`); só verificação de ID tokens OIDC (§4.9b). Sem `openidconnect`: arrastava `rsa`, com advisory sem correcção |
 | Concorrência | `arc-swap`, `dashmap`, `tokio-util` (`CancellationToken`) | — | |
 | Testes | `tokio::test`, `wiremock`, `assert_cmd`, `insta` | — | upstream fake MCP via `rmcp` server em processo |
 
@@ -121,7 +122,9 @@ Schema de tabelas e colunas compatível com DBs legacy (D3) para que a migraçã
 | `prompts` | `name`, `enabled`, `description`, `arguments JSON`, `server_id` | idem |
 | `resources` | `uri` (público `trunks://`), `original_uri`, `name`, `enabled`, `description`, `mime_type`, `annotations JSON`, `meta JSON`, `server_id` | idem, UNIQUE(uri) |
 | `server_configs` | `mode varchar(12)`, `initialized bool` | 0 ou 1 linha |
-| `users` | `username UNIQUE`, `role`, `access_token UNIQUE` | plaintext na v1 (compat); hash em D8 |
+| `users` | `username UNIQUE`, `role`, `access_token UNIQUE`, `oidc_issuer`, `oidc_subject` (migração `0006`; índice único parcial no par) | plaintext na v1 (compat); hash em D8. O par OIDC é NULL em users locais |
+| `sessions` | `id_hash PK` (SHA-256 hex do valor do cookie), `user_id`, `created_at`, `expires_at` | sessões de browser (D16); o valor do cookie nunca é guardado |
+| `oidc_login_states` | `state PK`, `nonce`, `code_verifier`, `return_to`, `expires_at` | login OIDC em curso; uso único, TTL 10 min |
 | `mcp_clients` | `name UNIQUE`, `description`, `access_token UNIQUE`, `allow_list JSON NOT NULL` | `["*"]` ou lista de nomes |
 | `tool_groups` | `name UNIQUE`, `description`, `included_tools JSON`, `included_servers JSON`, `excluded_tools JSON` | |
 | `upstream_oauth_pending_sessions` | `session_id UNIQUE` (64 hex), `server_name IDX`, `transport`, `server_input JSON`, `force`, `redirect_uri`, `client_id`, `client_secret`, `scopes JSON`, `state`, `code_verifier`, `expires_at IDX`, `initiated_by` | TTL 10 min |
@@ -263,7 +266,7 @@ Implementação (Fase 5), `trunks-core::oauth` + `RegistryService`:
 ### 4.9 Identidades e tokens
 
 - `generate_token()` → 32 bytes CSPRNG, base64url sem padding (43 chars). `validate_custom_token(s)`: `len ≥ 8` && sem whitespace Unicode.
-- `IdentityService` (users): `create_admin()` (só via `/init`), `create_user(name, token?)` role sempre `user`, `update_user_token` (rotação, custom ou gerado; o token antigo deixa de valer no pedido seguinte), `delete_user` (admin → `InvalidInput`; idempotente), `authenticate_user`.
+- `IdentityService` (users): `create_admin()` (só via `/init`), `create_user(name, token?)` role sempre `user`, `update_user_token` (rotação, custom ou gerado; o token antigo deixa de valer no pedido seguinte), `delete_user` (o **último** admin → `InvalidInput`; idempotente; apaga na mesma transacção sessões, memberships, grants e clients do user), `authenticate_user`.
 - `IdentityService` (MCP clients): `create_client(name, desc, allow_list, token?)` (lista vazia = sem acesso), `update_client(desc?, allow_list?, token?)` (só os campos dados; `COALESCE` na DB), `delete_client` idempotente, `authenticate_mcp_client`. `allow_list` malformada → sem acesso; entradas válidas: `"*"` ou nomes de servidor válidos (não precisam de existir).
 - Nomes de identidades: não vazios, sem whitespace, ≤ 100 chars. Duplicados → 400 `… already exists` (pré-verificação por nome; a constraint única da DB é mapeada para 400 em caso de corrida ou de token repetido).
 - **Tokens só são serializados duas vezes**: na criação e na rotação. `GET /users` e `GET /clients` nunca os devolvem (decisão própria; o legado devolvia em plaintext).
@@ -271,11 +274,23 @@ Implementação (Fase 5), `trunks-core::oauth` + `RegistryService`:
 
 ### 4.9a Modelo de acesso (D14) — `trunks-core::access`
 
-- Tabelas (`0005_access`): `teams(name UNIQUE, description)`, `team_members(team_id, user_id, role maintainer|member)`, `access_grants(subject_kind user|team, subject_id, target_kind server|tool_group, target_name, permission use)` com alvos **por nome** (sobrevivem a `register --force`; `*` = todos os servidores), `mcp_clients.owner_kind/owner_id` (NULL = sem dono).
+- Tabelas (`0005_access`): `teams(name UNIQUE, description)`, `team_members(team_id, user_id, role maintainer|member, source manual|oidc — `0006`)`, `access_grants(subject_kind user|team, subject_id, target_kind server|tool_group, target_name, permission use)` com alvos **por nome** (sobrevivem a `register --force`; `*` = todos os servidores), `mcp_clients.owner_kind/owner_id` (NULL = sem dono).
 - `AccessSet {all, servers, tool_groups}` é resolvido **uma vez na autenticação** e vai no `Principal`/`UserPrincipal`. User: união dos grants próprios e das suas teams; admin: `all`; development: `all`. Client com dono: conjunto do dono ∩ `allow_list` (vazia ou `*` = tudo do dono; lista não vazia = só esses servidores, e perde os grupos); sem dono: `allow_list` como sempre (fail-closed).
 - Regras: pode usar a tool `T` se `T.server` está concedido **ou** `T` pertence às effective tools de um grupo concedido; prompts e resources exigem o servidor; um grupo concedido não alarga acesso a prompts/resources. Um servidor é **visível** se concedido ou se alguma das suas tools o é por via de grupo. Entidades negadas respondem **404** (não 403) para não revelar existência.
 - Papéis de team: `maintainer` gere membros e os clients da team; `member` só herda. Admin global gere tudo. Nomes de team seguem as regras de nomes de identidades.
 - Transição: um `user` migrado sem grants **não vê nada** até um admin conceder (nota de migração).
+
+### 4.9b Login de humanos (D16, D17) — `trunks-core::{oidc, login}`
+
+- **Sessões.** `LoginService` abre sessões de browser: valor = `generate_token()`, entregue só no cookie `trunks_session` (`HttpOnly; SameSite=Lax; Path=/; Max-Age=<ttl>`, `Secure` quando o URL público é `https` ou, sem URL público, `X-Forwarded-Proto: https`); a DB guarda apenas o SHA-256. TTL `TRUNKS_SESSION_TTL_HOURS`; expiradas são purgadas no arranque e ignoradas na leitura. Duas entradas: OIDC (abaixo) e `POST /auth/token` (troca um access token de user por sessão — login por token da web app, D16).
+- **OIDC** (`OidcClient`): Authorization Code + PKCE `S256`, `state` e `nonce` de 32 bytes CSPRNG. `begin` devolve o URL de autorização; `state`, `nonce`, `code_verifier` e `return_to` ficam em `oidc_login_states` (uso único, 10 min) — nada em memória, por isso funciona com várias réplicas. `return_to` só aceita caminhos relativos (começa por `/`, sem `//` inicial, sem `\` e sem `://`); o resto vira `/`.
+- **Discovery e chaves.** `GET <issuer>/.well-known/openid-configuration` (o `issuer` do documento tem de ser **igual** ao configurado) + JWKS, em cache 1 h. Chaves que o build não sabe usar são ignoradas uma a uma. Um token com `kid` desconhecido ou assinatura que não verifica força **um** refresh do JWKS (rotação de chaves), no máximo de 30 em 30 s; falhas de claims não provocam refresh. Redirects HTTP nunca são seguidos; timeout 15 s.
+- **Troca do code.** `POST token_endpoint` (`grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`); client confidencial autentica-se com HTTP Basic, ou `client_secret_post` quando o IdP só anuncia esse; client público envia só `client_id`. Dos erros do IdP só `error`/`error_description` são mostrados.
+- **Verificação do ID token** (`jsonwebtoken`): algoritmo ∈ {`RS*`, `PS*`, `ES256`, `ES384`, `EdDSA`} — **simétricos (`HS*`) e `none` nunca**; assinatura contra o JWKS; `iss` = issuer configurado; `aud` contém o `client_id`; `azp`, se presente, = `client_id`; `exp` (60 s de tolerância); `nonce` = o do pedido; `sub` não vazio. `exp`, `iss`, `aud` e `sub` são obrigatórios. Só depois disto se lêem os restantes claims.
+- **Identidade**: `(issuer, sub)`; username = `preferred_username`, senão `email`, senão `sub` (tem de cumprir as regras de nomes; senão `sub`). Grupos: claim `TRUNKS_OIDC_GROUPS_CLAIM` do ID token (array de strings, ou string separada por vírgulas/espaços); se ausente, o mesmo claim do `userinfo` (só se o `sub` coincidir). Ausente em ambos ⇒ **nada é sincronizado**.
+- **Provisionamento JIT** (D17): procura o user por `(issuer, sub)`; se não existir, cria-o (role `user`, ou `admin` se o grupo de admin estiver nos claims) com um access token gerado que nunca é mostrado. **Nunca liga a um user local pelo nome**: se o username já existe sem par OIDC → 403 (evita que o naming do IdP tome conta de uma conta local, ex. o `admin` de bootstrap).
+- **Sincronização em cada login** (só com claim de grupos presente): com `TRUNKS_OIDC_ADMIN_GROUP` definido, o role segue o claim nos dois sentidos, excepto que o **último admin nunca é despromovido**; com `TRUNKS_OIDC_SYNC_TEAMS`, cada grupo com o prefixo `TRUNKS_OIDC_TEAM_PREFIX` (retirado; nome resultante tem de ser válido) torna-se team — criada se não existir — e as memberships com `team_members.source = 'oidc'` são substituídas pelo conjunto actual (role `member`); memberships manuais (`source = 'manual'`) nunca são tocadas. Os **grants continuam a ser geridos no Trunks**.
+- OIDC é só para humanos na web: os endpoints MCP **nunca** aceitam cookies (v2.0 no roadmap trata dos MCP clients).
 
 ### 4.10 Tool groups
 
@@ -296,11 +311,12 @@ Contrato `/api/v0` (estável dentro de 1.x; shapes detalhados no doc interno de 
 | Grupo | Middleware | Rotas |
 |---|---|---|
 | Público | — | `GET /health` → `{"status":"ok"}`; `GET /metadata` → `{"version"}`; `POST /init {mode}` → dev `{"status"}` / enterprise `{"status","admin_access_token"}`; já inicializado → 400; `GET /metrics` (se activo) |
+| Auth (browser, D16) | — (só actuam em enterprise; dev → 403 `ENTERPRISE_ONLY`) | `GET /auth/config`, `GET /auth/login?return_to=`, `GET /auth/callback`, `POST /auth/token`, `POST /auth/logout` |
 | Dashboard static | `require_initialized` (a web app autentica-se contra a API; D15) | `GET /`, `/index.html`, `/assets/*` |
 | MCP | `require_initialized`, `mcp_client_auth` | `ANY /mcp`, `ANY /v0/groups/{name}/mcp` |
 | REST user | `require_initialized`, `user_auth` | `GET /api/v0/servers`, `/tools?server=`, `/tool?name=`, `POST /tools/invoke`, `GET /resources?server=`, `POST /resources/get`, `/resources/read`, `GET /prompts?server=`, `/prompt?name=`, `POST /prompts/render`, `GET /users/whoami` (+enterprise) |
 | REST admin | + `require_admin` | `POST /servers?force=`, `POST /upstream_oauth/sessions/{id}/complete`, `DELETE /servers/{name}`, `POST /servers/{name}/enable\|disable`, `GET /server_configs`, `POST /tools/enable\|disable?entity=`, `POST /prompts/enable\|disable?entity=`, `GET/POST /clients`, `PUT/DELETE /clients/{name}` (+enterprise), `GET/POST /users`, `PUT/DELETE /users/{username}` (+enterprise), `GET/POST /tool-groups`, `GET/PUT/DELETE /tool-groups/{name}`, `GET /tool-groups/{name}/effective-tools` |
-| Dashboard API | `require_initialized`, `user_auth` (dev: aberto; enterprise: bearer de user) | `GET /api/dashboard/{overview,servers,servers/{n},tools?server=&enabled=,prompts?server=,resources?server=,tool-groups,tool-groups/{n},diagnostics,oauth/session/{id}}`; `GET /api/dashboard/oauth/callback` (HTML, **público**) |
+| Dashboard API | `require_initialized`, `user_auth` (dev: aberto; enterprise: bearer de user ou cookie de sessão) | `GET /api/dashboard/{overview,servers,servers/{n},tools?server=&enabled=,prompts?server=,resources?server=,tool-groups,tool-groups/{n},diagnostics,oauth/session/{id}}`; `GET /api/dashboard/oauth/callback` (HTML, **público**) |
 
 Dashboard (D15 — só leitura agregada e sanitizada; as mutações usam `/api/v0`). Tipos em `trunks_core::dashboard`:
 - `overview` → `{mode, version, uptime_seconds, counts{servers, servers_enabled, tools, tools_enabled, prompts, resources, tool_groups, pending_oauth}, sessions{stateful_active}, metrics_enabled}`.
@@ -312,6 +328,13 @@ Dashboard (D15 — só leitura agregada e sanitizada; as mutações usam `/api/v
 - `oauth/callback?code=&state=` (ou `?error=&error_description=`) → página HTML; o backend procura a sessão pelo `state`, completa a troca e regista o servidor; a página faz `postMessage({source:'trunks-oauth'})` ao `opener`. Erros renderizam a página com a razão (nunca 500). A web app usa `oauth_redirect_uri = <origin>/api/dashboard/oauth/callback` no `POST /api/v0/servers` e faz polling de `oauth/session/{id}`.
 - Invariante testada: nenhum valor de `env`, header, `bearer_token`, token OAuth ou `client_id` aparece em resposta alguma de `/api/dashboard`.
 
+Auth de browser (`trunks-api::routes::auth`):
+- `GET /auth/config` → `{mode: "development"|"enterprise"|null, login_required, oidc}` — o que a web app precisa antes de haver login (`oidc` = `GET /auth/login` disponível).
+- `GET /auth/login?return_to=` → `302` para o IdP; 404 `OIDC_NOT_CONFIGURED` se não houver issuer configurado.
+- `GET /auth/callback?code=&state=` → `302` para `return_to` + `Set-Cookie: trunks_session=…`. Falhas respondem com uma **página HTML** ("Sign-in failed" + razão) e sem cookie: 400 (o IdP devolveu `error`, ou faltam `code`/`state`), 401 (`state` desconhecido/expirado/repetido, troca do code recusada, ID token inválido), 403 (username já existe como user local), 502 (IdP inalcançável ou discovery inválido).
+- `POST /auth/token {access_token}` → `200 {username, role}` + cookie; token inválido → 401. Tokens de MCP client não servem.
+- `POST /auth/logout` → `204`, apaga a sessão na DB e expira o cookie (idempotente).
+
 Shapes do registry (admin):
 - `POST /servers?force=` body `RegisterServerInput {name, transport, description, url?, bearer_token?, headers{}, command?, args[], env{}, session_mode, oauth_redirect_uri?, oauth_client_id?, oauth_client_secret?, oauth_scopes[]}` → `201 {"server": McpServer}` ou `202 {"authorization_required": {session_id, authorization_url, expires_at}}` (Fase 5). `force` é booleano estrito (`true|false|1|0|t|f`, sem distinção de maiúsculas; outro valor → 400 `INVALID_FORCE_QUERY`). Nome duplicado sem `force` → 400 `server '{n}' already exists; use force to replace it`. Falha de ligação ao upstream → 500 com a razão (nada persistido).
 - `DELETE /servers/{name}` → 204; 404 se não existir.
@@ -319,7 +342,7 @@ Shapes do registry (admin):
 - `GET /server_configs` → `[RegisterServerInput]` **com segredos**: é o formato de `trunks export` e de `trunks register -c`.
 
 Shapes de identidades (enterprise + admin; em development → 403 `ENTERPRISE_ONLY`):
-- `GET /users` → `[User {username, role}]`. `POST /users {username, access_token?}` → `201 UserWithToken {username, role, access_token}`. `PUT /users/{username} {access_token?}` → `200 UserWithToken` (token novo; 404 se não existir). `DELETE /users/{username}` → 204 (idempotente; admin → 400 `ADMIN_CANNOT_BE_DELETED`).
+- `GET /users` → `[User {username, role}]`. `POST /users {username, access_token?}` → `201 UserWithToken {username, role, access_token}`. `PUT /users/{username} {access_token?}` → `200 UserWithToken` (token novo; 404 se não existir). `DELETE /users/{username}` → 204 (idempotente; o último admin → 400 `ADMIN_CANNOT_BE_DELETED`).
 - `GET /clients` → `[McpClient {name, description, allow_list[], owner?{kind, name}}]` — admin vê todos; um user vê os seus e os das suas teams. `POST /clients {name, description, allow_list[], access_token?, owner?}` → `201 McpClientWithToken {…, owner?, access_token}`; admin escolhe qualquer dono ou nenhum; um user fica como dono salvo se nomear uma team que mantém (senão 403). `PUT /clients/{name} {description?, allow_list?, access_token?, rotate_token}` → `200` (só admin, dono ou maintainer da team dona; senão 403 `NOT_OWNER`). `DELETE /clients/{name}` → 204 (idempotente para admin).
 - `GET /users/whoami` → `WhoAmI {username, role, teams[{name, role}], access{all, servers[], tool_groups[]}}`.
 - Teams (`require_enterprise`): `GET /teams` → `[Team {name, description}]`; `POST /teams` (admin) → `201 TeamDetail {…, members[{username, role}]}`; `GET /teams/{n}` → `TeamDetail`; `PUT /teams/{n} {description}` (admin); `DELETE /teams/{n}` → 204 idempotente (admin; apaga memberships e grants da team e desassocia os clients que possuía); `POST /teams/{n}/members {username, role?}` (admin ou maintainer; upsert) → `TeamDetail`; `DELETE /teams/{n}/members/{u}` → 204.
@@ -331,8 +354,8 @@ Erros: `{"error": string, "code"?: string}`. Mapeamento `RegistryError → Statu
 
 Middleware:
 - `require_initialized`: lê `ServerConfig` de um `watch::Receiver<Option<ServerMode>>` em memória (actualizado por `/init`), não da DB por pedido. 403 se não inicializado. Insere `ServerMode` nas extensions.
-- `user_auth`: dev → `Principal::DevOpen`; enterprise → `Authorization: Bearer` → lookup → 401; insere `UserPrincipal`.
-- `mcp_client_auth`: dev → `Principal::DevOpen`; enterprise → bearer → lookup em `mcp_clients` (tokens de user são **rejeitados**) → 401; insere `Principal::McpClient`.
+- `user_auth`: dev → `Principal::DevOpen`; enterprise → `Authorization: Bearer` → lookup → 401; sem bearer, cookie `trunks_session` → sessão válida → o mesmo `UserPrincipal` (o bearer ganha sempre). Com cookie, métodos não seguros (`POST/PUT/PATCH/DELETE`) exigem `Origin` igual ao URL público ou ao `Host` do pedido; ausente ou diferente → 403 `CROSS_ORIGIN_REJECTED`. Pedidos com bearer não têm esta verificação.
+- `mcp_client_auth`: dev → `Principal::DevOpen`; enterprise → bearer → lookup em `mcp_clients` (tokens de user e cookies de sessão são **rejeitados**) → 401; insere `Principal::McpClient`.
 - `require_admin`: dev → passa; enterprise → role ≠ admin → 403.
 - `require_enterprise`: 403 com a mensagem acima.
 - `trace`: access log com método, path, status, latência, `principal.kind` (nunca o token).
@@ -390,6 +413,16 @@ Precedência: flag > env var > `.env` (via `dotenvy`) > default. Todas as env va
 | `TRUNKS_ALLOWED_HOSTS` | lista de `Host` aceites nos endpoints MCP; `*` desliga | loopback |
 | `TRUNKS_IGNORE_SSE_SERVERS` | `1` → ignora servidores `sse` legacy em vez de falhar o arranque | unset |
 | `TRUNKS_LOG` (fallback `RUST_LOG`) | filtro `tracing` | `info` |
+| `--public-url` / `TRUNKS_PUBLIC_URL` | URL base público (ex. `https://trunks.example.com`); decide o `Secure` do cookie e a origem aceite; **obrigatório com OIDC** (o IdP redirecciona para `<url>/auth/callback`) | unset |
+| `TRUNKS_SESSION_TTL_HOURS` | duração das sessões de browser (≥1) | 12 |
+| `TRUNKS_OIDC_ISSUER` | issuer OIDC; defini-lo liga o "Sign in with SSO" (só enterprise; em development é erro de arranque) | unset |
+| `TRUNKS_OIDC_CLIENT_ID` | client id registado no IdP; obrigatório com issuer | unset |
+| `TRUNKS_OIDC_CLIENT_SECRET` | segredo do client (omitir para client público + PKCE) | unset |
+| `TRUNKS_OIDC_SCOPES` | scopes pedidos além de `openid` (lista separada por vírgulas) | `profile,email` |
+| `TRUNKS_OIDC_GROUPS_CLAIM` | claim com os grupos/roles do utilizador | `groups` |
+| `TRUNKS_OIDC_ADMIN_GROUP` | valor do claim que torna o user admin; sem ele o login nunca altera roles | unset |
+| `TRUNKS_OIDC_SYNC_TEAMS` | `true` → sincroniza memberships de teams a partir do claim | `false` |
+| `TRUNKS_OIDC_TEAM_PREFIX` | só grupos com este prefixo viram teams (o prefixo é retirado) | vazio |
 | `TRUNKS_REGISTRY` (CLI) / `--registry` | URL do servidor para os comandos de gestão | `http://127.0.0.1:8080` |
 
 ## 10. Observabilidade
@@ -407,6 +440,7 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 - Todos os segredos em `SecretString`; `Debug` redigido; serialização só em `GET /server_configs` (admin) e na resposta de criação de user/client.
 - Headers downstream nunca chegam ao upstream (o `UpstreamConn` é construído sem acesso ao pedido).
 - Fail-closed por tipo: `Principal` ausente ⇒ vazio/negado.
+- Sessões de browser: cookie `HttpOnly; SameSite=Lax` (+`Secure` em https), só o SHA-256 em DB, verificação de `Origin` em mutações autenticadas por cookie, nunca aceites nos endpoints MCP. ID tokens só com algoritmos assimétricos; `state` de uso único; `client_secret`, `code_verifier`, ID/access tokens do IdP em `SecretString` e nunca em logs.
 - DNS rebinding: `allowed_hosts` loopback por defeito.
 - Processos stdio: process group próprio, `kill_on_drop`, stderr limitado a 4 KiB por chunk, sem herdar stdin.
 - `cargo deny` (advisories, licenças permissivas), `cargo audit` no CI.
@@ -417,7 +451,7 @@ Logs: `tracing` com `target` por subsistema (`trunks::registry`, `trunks::gatewa
 |---|---|---|
 | Unit | cada crate | parsing de nomes/URIs (tabela de casos §4.1), resolução de grupos, filtragem por allow-list, classificação de erros, token gen/validate, `summarize_server_config` |
 | Integration (core) | `trunks-core/tests` com stores em memória + upstream `rmcp` em processo | registo/deregisto/enable cascata, stateless vs stateful, invalidação, OAuth com `wiremock` como authorization server |
-| API | `trunks-api/tests` com `axum::Router` + SQLite `:memory:` | cada rota, códigos, shapes, middleware |
+| API | `trunks-api/tests` com `axum::Router` + SQLite `:memory:` | cada rota, códigos, shapes, middleware; login OIDC contra um IdP falso (`trunks_testing::oidc::FakeIdp`: discovery, JWKS, token, userinfo) incl. rotação de chaves, `aud`/assinatura/expiração/`nonce`/algoritmo simétrico rejeitados, `state` de uso único, CSRF por `Origin` |
 | E2E / conformidade | `tests/conformance` com `assert_cmd` contra o binário, `@modelcontextprotocol/server-everything` via `npx` | fluxos completos (registo, invocação, grupos, enterprise, OAuth, web app); matriz {dev, enterprise} × {sqlite, postgres (testcontainers)} |
 | Snapshot | `insta` | saída do CLI (`list`, `usage`, `get group`) |
 
