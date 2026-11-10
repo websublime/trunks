@@ -88,7 +88,7 @@ Nome do binário: `trunks` (D1).
 | Concorrência | `arc-swap`, `dashmap`, `tokio-util` (`CancellationToken`) | — | |
 | Testes | `tokio::test`, `wiremock`, `assert_cmd`, `insta` | — | upstream fake MCP via `rmcp` server em processo |
 
-Toolchain: Rust stable ≥ 1.85 (edition 2024). `cargo clippy -- -D warnings`, `cargo fmt --check`, `cargo deny check` (licenças + advisories) obrigatórios no CI.
+Toolchain: Rust stable ≥ 1.94 (edition 2024). `cargo clippy -- -D warnings`, `cargo fmt --check`, `cargo deny check` (licenças + advisories) obrigatórios no CI.
 
 ## 4. Domínio (`trunks-core`)
 

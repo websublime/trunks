@@ -3,7 +3,14 @@ all-features = true
 
 [advisories]
 version = 2
-ignore = []
+ignore = [
+  # Bundled SQLite < 3.54.0 can return stale memory when it opens a database whose `-wal`
+  # sibling was crafted with a different page size. Local vector: it needs write access to the
+  # database file, which already holds every credential Trunks stores. sqlx 0.9.0 caps
+  # `libsqlite3-sys` below 0.38, so the patched 0.39 cannot be selected yet.
+  # Remove when a sqlx release accepts `libsqlite3-sys` >= 0.39.
+  { id = "RUSTSEC-2026-0459", reason = "no sqlx release accepts the patched libsqlite3-sys; local vector needing write access to the database file" },
+]
 
 [licenses]
 version = 2

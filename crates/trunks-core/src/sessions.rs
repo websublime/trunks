@@ -30,7 +30,7 @@ impl Default for SessionOptions {
         Self {
             connect: ConnectOptions::default(),
             idle_timeout: None,
-            sweep_interval: Duration::from_secs(60),
+            sweep_interval: Duration::from_mins(1),
         }
     }
 }

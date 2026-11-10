@@ -168,10 +168,10 @@ pub(crate) fn resolve_effective(
 ) -> BTreeSet<CanonicalName> {
     let mut set: BTreeSet<CanonicalName> = BTreeSet::new();
     for name in included_tools {
-        if let Ok(c) = CanonicalName::parse(name) {
-            if tools.get(&c).is_some_and(|t| t.enabled) {
-                set.insert(c);
-            }
+        if let Ok(c) = CanonicalName::parse(name)
+            && tools.get(&c).is_some_and(|t| t.enabled)
+        {
+            set.insert(c);
         }
     }
     for server in included_servers {

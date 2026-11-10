@@ -7,7 +7,7 @@ default-members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.94"
 license = "MPL-2.0"
 repository = "https://github.com/websublime/trunks"
 homepage = "https://github.com/websublime/trunks"
@@ -34,7 +34,7 @@ http = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query", "stream"] }
 
 # mcp
-rmcp = { version = "3.8", features = [
+rmcp = { version = "3.9", features = [
   "server",
   "client",
   "transport-streamable-http-server",
@@ -45,7 +45,7 @@ rmcp = { version = "3.8", features = [
 ] }
 
 # database
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "sqlite", "postgres", "json", "chrono", "migrate", "macros"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "sqlite", "postgres", "json", "chrono", "migrate", "macros"] }
 
 # serialization / config
 serde = { version = "1", features = ["derive"] }

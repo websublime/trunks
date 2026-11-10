@@ -6,7 +6,7 @@ use crate::{Db, Result, with_pool};
 const USERS: &str =
     "SELECT id, username, role, access_token FROM users WHERE deleted_at IS NULL ORDER BY username";
 const USER_BY_TOKEN: &str = "SELECT id, username, role, access_token FROM users WHERE access_token = $1 AND deleted_at IS NULL";
-const CLIENT_COLS: &str = "id, name, description, access_token, allow_list, owner_kind, owner_id";
+const CLIENTS_OWNED_BY: &str = "SELECT id, name, description, access_token, allow_list, owner_kind, owner_id FROM mcp_clients WHERE owner_kind = $1 AND owner_id = $2 AND deleted_at IS NULL ORDER BY name";
 const CLIENTS: &str = "SELECT id, name, description, access_token, allow_list, owner_kind, owner_id FROM mcp_clients WHERE deleted_at IS NULL ORDER BY name";
 const CLIENT_BY_TOKEN: &str = "SELECT id, name, description, access_token, allow_list, owner_kind, owner_id FROM mcp_clients WHERE access_token = $1 AND deleted_at IS NULL";
 
@@ -109,10 +109,11 @@ pub async fn user_by_id(db: &Db, id: i64) -> Result<Option<UserRow>> {
 
 /// Clients owned by one subject.
 pub async fn clients_owned_by(db: &Db, kind: &str, id: i64) -> Result<Vec<McpClientRow>> {
-    let sql = format!(
-        "SELECT {CLIENT_COLS} FROM mcp_clients WHERE owner_kind = $1 AND owner_id = $2 AND deleted_at IS NULL ORDER BY name"
-    );
-    Ok(with_pool!(db, |p| sqlx::query_as(&sql).bind(kind).bind(id).fetch_all(p).await?))
+    Ok(with_pool!(db, |p| sqlx::query_as(CLIENTS_OWNED_BY)
+        .bind(kind)
+        .bind(id)
+        .fetch_all(p)
+        .await?))
 }
 
 /// `None` fields keep their current value (`COALESCE`).

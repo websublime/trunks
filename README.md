@@ -53,7 +53,7 @@ cargo run -- start        # http://127.0.0.1:8080/health
 cargo run -- version
 ```
 
-Requirements: Rust stable ≥ 1.85 (edition 2024). Node 20 is only needed to build the web app.
+Requirements: Rust stable ≥ 1.94 (edition 2024). Node 20 is only needed to build the web app.
 
 ## Releases
 
