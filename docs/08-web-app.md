@@ -163,7 +163,7 @@ API responde.
 - `cargo xtask gen-types` escreve `web/app/src/api/types.gen.ts` a partir dos tipos Rust
   (`ts-rs`, atrás da feature `ts` de `trunks-types` e `trunks-core`); um teste do `xtask`
   falha quando o ficheiro deixa de coincidir.
-- O release (cargo-dist, `.github/workflows/build-setup.yml`) e as imagens de contentor
+- O release (cargo-dist, `.github/build-setup.yml`) e as imagens de contentor
   (estágio `web` do `Dockerfile`) constroem a app antes do `cargo build`; um binário de
   release sem a app embebida é um erro do pipeline, não uma variante. Um `cargo build` local
   sem `build-dashboard` continua a compilar e serve 404 em `/`.
