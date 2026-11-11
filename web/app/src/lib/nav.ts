@@ -21,11 +21,28 @@ export interface Section {
 export const NAVIGATION: Section[] = [
   {
     title: 'Gateway',
-    pages: [{ href: '/', label: 'Overview', icon: 'overview', audience: 'everyone' }],
+    pages: [
+      { href: '/', label: 'Overview', icon: 'overview', audience: 'everyone' },
+      { href: '/servers/', label: 'Servers', icon: 'servers', audience: 'everyone' },
+      { href: '/tools/', label: 'Tools', icon: 'tools', audience: 'everyone' },
+      { href: '/prompts/', label: 'Prompts', icon: 'prompts', audience: 'everyone' },
+      { href: '/resources/', label: 'Resources', icon: 'resources', audience: 'everyone' },
+      { href: '/groups/', label: 'Tool groups', icon: 'groups', audience: 'everyone' },
+    ],
+  },
+  {
+    title: 'System',
+    pages: [{ href: '/diagnostics/', label: 'Diagnostics', icon: 'diagnostics', audience: 'admin' }],
   },
 ];
 
-const HREFS = new Set(NAVIGATION.flatMap((section) => section.pages.map((page) => page.href)));
+/** Pages reached from another page rather than from the navigation. */
+const DETAIL_PAGES = ['/servers/detail/', '/groups/detail/'];
+
+const HREFS = new Set([
+  ...NAVIGATION.flatMap((section) => section.pages.map((page) => page.href)),
+  ...DETAIL_PAGES,
+]);
 
 /** `href` when the console has that page, otherwise `undefined` (so nothing links to a 404). */
 export function page(href: string): string | undefined {

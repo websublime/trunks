@@ -82,8 +82,11 @@ First public version. Everything below is new.
 
 - A console embedded in the binary and served at `/`: sign-in with an access token (and
   single sign-on when configured) and an overview of what the gateway holds, limited to what
-  the viewer was granted. Light and dark, usable at phone width. The catalogue and the
-  management screens are not in this version.
+  the viewer was granted. Light and dark, usable at phone width.
+- Read-only catalogue: servers and how each is reached (never a credential), tools with their
+  parameters, prompts with their arguments, resources, tool groups with their endpoint and
+  effective tools, and, for administrators, diagnostics. Changes are still made with the CLI
+  or the API; the management screens are not in this version.
 
 ### Not in this version
 

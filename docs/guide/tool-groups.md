@@ -71,6 +71,9 @@ trunks list tools --group triage
 trunks invoke github__list_issues --group triage --input '{"repo":"websublime/trunks"}'
 ```
 
+The web console shows the same under **Tool groups**: each group's endpoint, its effective
+tools and whether each one comes from an included server or was included by name.
+
 ## Change or remove a group
 
 ```bash
