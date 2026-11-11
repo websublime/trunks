@@ -171,7 +171,12 @@ export type AccessView = { all: boolean, servers: Array<string>, tool_groups: Ar
 
 export type TeamMembership = { name: string, role: string, };
 
-export type WhoAmI = { username: string, role: Role, teams: Array<TeamMembership>, access: AccessView, };
+export type WhoAmI = { username: string, role: Role, teams: Array<TeamMembership>, access: AccessView, 
+/**
+ * Where `access` comes from: the grants held by the user and by each of their teams.
+ * An administrator's access does not come from grants; theirs are listed all the same.
+ */
+grants: Array<GrantSpec>, };
 
 export type Counts = { servers: number, servers_enabled: number, tools: number, tools_enabled: number, prompts: number, resources: number, tool_groups: number, pending_oauth: number, };
 

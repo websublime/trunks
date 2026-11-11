@@ -54,6 +54,56 @@ export function errorText(message: string) {
 
 export const none = (text = '—') => html`<span class="lo">${text}</span>`;
 
+/** A user or a team, by kind and name. */
+export function subject(kind: string, name: string, tag?: string) {
+  return html`<span class="subj"
+    >${icon(kind === 'team' ? 'teams' : 'user')}<span class="lo small">${kind}</span
+    ><span class="mono">${name}</span>${tag === undefined ? nothing : html`<span class="bdg">${tag}</span>`}</span
+  >`;
+}
+
+export interface TextField {
+  id: string;
+  label: string;
+  value: string;
+  input: (value: string) => void;
+  problem?: string | undefined;
+  hint?: TemplateResult | string;
+  required?: boolean;
+  mono?: boolean;
+  /** `id` of a `<datalist>` with suggestions. */
+  list?: string;
+  placeholder?: string;
+}
+
+/** A labelled text input with its hint and, when there is one, its problem. */
+export function textField(f: TextField) {
+  const described = [f.problem === undefined ? '' : `${f.id}-e`, f.hint === undefined ? '' : `${f.id}-h`]
+    .filter((x) => x !== '')
+    .join(' ');
+  return html`<div class="fld">
+    <label for=${f.id}>${f.label} ${f.required ? html`<span class="req">(required)</span>` : nothing}</label>
+    <div class="inp ${f.mono ? 'mono' : ''} ${f.problem === undefined ? '' : 'invalid'}">
+      <input
+        id=${f.id}
+        type="text"
+        spellcheck="false"
+        autocomplete="off"
+        autocapitalize="off"
+        list=${f.list ?? nothing}
+        placeholder=${f.placeholder ?? nothing}
+        aria-required=${f.required ? 'true' : 'false'}
+        aria-invalid=${f.problem === undefined ? 'false' : 'true'}
+        aria-describedby=${described === '' ? nothing : described}
+        .value=${f.value}
+        @input=${(e: InputEvent) => f.input((e.target as HTMLInputElement).value)}
+      />
+    </div>
+    ${f.problem === undefined ? nothing : html`<div class="ferr" id="${f.id}-e">${icon('alert')}${f.problem}</div>`}
+    ${f.hint === undefined ? nothing : html`<div class="hint" id="${f.id}-h">${f.hint}</div>`}
+  </div>`;
+}
+
 /**
  * An on/off switch that acts at once. `label` names what it switches ("Enabled: github");
  * while `busy` it cannot be pressed again.

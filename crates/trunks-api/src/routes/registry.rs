@@ -7,8 +7,8 @@ use axum::{Extension, Json, Router};
 use trunks_core::Error;
 use trunks_core::identity::UserPrincipal;
 use trunks_types::api::{
-    AccessView, ByNameQuery, ByServerQuery, McpServer, Prompt, Resource, TeamMembership, Tool,
-    WhoAmI,
+    AccessView, ByNameQuery, ByServerQuery, GrantSpec, McpServer, Prompt, Resource, TeamMembership,
+    Tool, WhoAmI,
 };
 use trunks_types::error::messages;
 use trunks_types::{CanonicalName, ServerName};
@@ -153,9 +153,24 @@ async fn list_resources(
     ))
 }
 
-async fn whoami(Extension(p): Extension<UserPrincipal>) -> Result<Json<WhoAmI>, ApiError> {
+async fn whoami(
+    State(st): State<AppState>,
+    Extension(p): Extension<UserPrincipal>,
+) -> Result<Json<WhoAmI>, ApiError> {
     match &p {
         UserPrincipal::User { user, access, teams } => Ok(Json(WhoAmI {
+            grants: st
+                .identity
+                .grants_behind(user, teams)
+                .await?
+                .iter()
+                .map(|g| GrantSpec {
+                    subject_kind: g.subject_kind.as_str().to_owned(),
+                    subject: g.subject_name.clone(),
+                    target_kind: g.target_kind.as_str().to_owned(),
+                    target: g.target_name.clone(),
+                })
+                .collect(),
             username: user.username.clone(),
             role: user.role,
             teams: teams

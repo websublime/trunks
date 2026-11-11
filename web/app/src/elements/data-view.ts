@@ -53,6 +53,8 @@ export abstract class DataView<T> extends LitElement {
   protected abstract load(session: Session): Promise<T>;
   protected abstract heading(data: T | undefined, session: Session): Heading;
   protected abstract content(data: T, session: Session): TemplateResult;
+  /** The view is about users, teams, clients or grants, which only enterprise mode has. */
+  protected readonly enterprise: boolean = false;
 
   readonly #poller = new Poller(() => void this.#refresh());
 
@@ -72,7 +74,7 @@ export abstract class DataView<T> extends LitElement {
     if (arrived !== undefined) this.notice = { tone: 'success', title: arrived };
     void session().then((s) => {
       this.session = s;
-      this.#poller.start();
+      if (this.#applies(s)) this.#poller.start();
     });
   }
 
@@ -81,9 +83,19 @@ export abstract class DataView<T> extends LitElement {
     this.#poller.stop();
   }
 
+  #applies(s: Session): boolean {
+    return !this.enterprise || s.mode === 'enterprise';
+  }
+
   /** Loads again now. */
   protected refresh(): void {
     this.#poller.now();
+  }
+
+  /** Reports something the person did that worked, and shows its effect. */
+  protected done(title: string): void {
+    this.notice = { tone: 'success', title };
+    this.refresh();
   }
 
   /**
@@ -202,7 +214,16 @@ export abstract class DataView<T> extends LitElement {
               >
             </div>
           </div>`}
-      ${this.error !== undefined
+      ${!this.#applies(s)
+        ? html`<section class="panel">
+            ${state(
+              'info',
+              'Only in enterprise mode',
+              'Development mode has no users, teams, MCP clients or grants: everything is open to everyone.',
+              html`<a class="btn" href="/">Go to the overview</a>`,
+            )}
+          </section>`
+        : this.error !== undefined
         ? this.#failed(this.error)
         : this.data === undefined
           ? html`<section class="panel">

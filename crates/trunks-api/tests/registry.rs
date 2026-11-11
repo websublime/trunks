@@ -902,6 +902,7 @@ async fn grants_drive_what_users_see_and_invoke() {
     assert_eq!(api_status(&bob.get_tool("alpha__echo").await.unwrap_err()), 404);
     let me = bob.whoami().await.unwrap();
     assert!(!me.access.all && me.access.servers.is_empty());
+    assert!(me.grants.is_empty());
 
     // users cannot grant; admins can; validation of kinds and names
     assert_eq!(
@@ -938,6 +939,8 @@ async fn grants_drive_what_users_see_and_invoke() {
     );
     let me = bob.whoami().await.unwrap();
     assert_eq!(me.access.servers, ["alpha"]);
+    // whoami says where the access comes from
+    assert_eq!(me.grants, [grant("user", "bob", "server", "alpha")]);
     // idempotent grant → 200, listing by target
     admin.grant(&grant("user", "bob", "server", "alpha")).await.unwrap();
     let on_alpha = admin.list_grants(Some(("server", "alpha"))).await.unwrap();
@@ -1073,6 +1076,8 @@ async fn teams_memberships_and_owned_clients() {
     admin.grant(&grant("team", "data", "server", "beta")).await.unwrap();
     assert_eq!(names(carol.list_servers().await.unwrap(), |s| s.name.to_string()), ["beta"]);
     assert_eq!(names(bob.list_servers().await.unwrap(), |s| s.name.to_string()), ["beta"]);
+    // a member's whoami names the team the access comes through
+    assert_eq!(carol.whoami().await.unwrap().grants, [grant("team", "data", "server", "beta")]);
 
     // owned clients: carol's client inherits her access (beta only), even with an empty allow list;
     // allow_list narrows but never widens; carol cannot own a client as the team (not maintainer)

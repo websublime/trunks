@@ -21,12 +21,14 @@ const ana: WhoAmI = {
   role: 'admin',
   teams: [],
   access: { all: true, servers: [], tool_groups: [] },
+  grants: [],
 };
 const rui: WhoAmI = {
   username: 'rui',
   role: 'user',
   teams: [{ name: 'support', role: 'member' }],
   access: { all: false, servers: ['jira'], tool_groups: [] },
+  grants: [{ subject_kind: 'team', subject: 'support', target_kind: 'server', target: 'jira' }],
 };
 
 describe('loadSession', () => {

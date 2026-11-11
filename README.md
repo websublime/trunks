@@ -15,9 +15,8 @@ delivers the gateway, registry, CLI, teams with per-resource grants, single sign
 organisations and declarative configuration. See `docs/`.
 
 > Status: **pre-alpha**. The gateway, registry, CLI, access model and single sign-on are
-> implemented and tested. The web console shows the gateway (overview, servers, tools, prompts,
-> resources, tool groups, diagnostics) and manages servers and tool groups; its screens for
-> users, teams, MCP clients and grants, and the first tagged release, are still to come
+> implemented and tested, and so is the web console: it shows the gateway and manages servers,
+> tool groups, users, teams, MCP clients and grants. The first tagged release is still to come
 > (`docs/03-plano.md`).
 
 ## Quickstart

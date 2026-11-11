@@ -119,3 +119,27 @@ details.adv[open]{padding-bottom:var(--line-size-3)}
 .w-filter{max-width:var(--line-size-sm)}
 ul.gone{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--line-size-1)}
 ul.gone li{display:flex;align-items:center;gap:var(--line-size-2);flex-wrap:wrap}
+.row.bottom{align-items:flex-end}
+.row.end{justify-content:flex-end}
+.row.wide-gap{gap:var(--line-size-3) var(--line-size-5)}
+.row.add{padding:var(--line-size-3);border-top:var(--line-border-1) solid var(--line-gray-6)}
+.w-field{min-width:min(100%,14rem)}
+.w-role{width:11rem}
+.row.bottom > .w-field:has(.hint),.row.bottom > .w-field:has(.ferr){align-self:flex-start}
+line-button.with-hint{align-self:flex-start;margin-top:calc(var(--line-font-size-0) * 1.5 + var(--line-size-1))}
+.bdg .hi{color:var(--line-gray-12)}
+a.bdg.link{text-decoration:none}
+a.bdg.link:hover{box-shadow:inset 0 0 0 1px var(--line-gray-solid)}
+.pick-l.bordered{border:var(--line-border-1) solid var(--line-gray-6);border-radius:var(--line-radius-2)}
+.subj .bdg{margin-left:var(--line-size-1)}
+.subj .arrow{color:var(--line-gray-text-low)}
+.list li{align-items:center}
+.tbl td.act .row{flex-wrap:nowrap}
+@container app (max-width: 48rem){
+ .tbl td.act .row{flex-wrap:wrap;justify-content:flex-start}
+}
+.tk a.bdg.link{color:var(--line-gray-text-low)}
+.pfx{display:inline-flex}
+@container app (max-width: 48rem){
+ .hdr{padding-block:var(--line-size-2)}
+}
