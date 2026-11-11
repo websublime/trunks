@@ -111,7 +111,7 @@ Decisões D14–D17 (`01-produto.md`). Dividida em quatro PRs:
 
 ### Fase 7 — Conformidade final, hardening e release v1.0 (2 sem.)
 
-Dividida em PRs: **7a** hardening → **7b** conformidade → **7c** performance → **7d** release → **7e** documentação. Dependiam da 6c o smoke Playwright e a parte "web app" da conformidade: são o job `web` do CI (34 casos contra o binário real, nos dois modos) e os testes das rotas estáticas em `trunks-api`. Falta a tag.
+Dividida em PRs: **7a** hardening → **7b** conformidade → **7c** performance → **7d** release → **7e** documentação. Dependiam da 6c o smoke Playwright e a parte "web app" da conformidade: são o job `web` do CI (34 casos contra o binário real, nos dois modos) e os testes das rotas estáticas em `trunks-api`. Tag: `v0.1.0-rc.2` publicada (2026-11-11): GitHub Release marcado como pre-release com os oito targets, instaladores e checksums, e imagens `ghcr.io/websublime/trunks:v0.1.0-rc.2` e `-stdio` (amd64 e arm64); `latest` não se move numa rc. A `v0.1.0-rc.1` ficou sem binários: três builds falharam (caminho em Windows no verificador do build da consola; Node 22.23.2 em cache no runner macOS Intel; cross-compilação de Windows arm64 a falhar no `ring`, agora em runner nativo). Verificado no binário publicado de Linux x86_64: checksum, versão `v0.1.0-rc.2` sem sufixo e consola embutida. Falta a tag final.
 
 - Harness diferencial completo em CI; suite de conformidade a 100 %; matriz {dev, enterprise} × {sqlite, postgres}.
 - Smoke com os 4 clientes reais (Claude Code, Claude Desktop via `mcp-remote`, Cursor, Copilot) em ambos os modos.
@@ -193,4 +193,4 @@ Uma fase só fecha quando **todos** se verificam:
 3. ~~Fixtures legacy~~ feitas (sintéticas; regenerar com binário real quando possível).
 4. ~~Spike S1~~ feito — sem plano B.
 5. ~~Spike S3~~ feito. **Fase 0 concluída.**
-6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2). ~~Fase 3~~ feita. ~~Fase 4~~ feita. ~~Fase 5~~ feita — ~~Fase 6~~ feita: ~~6a~~, ~~6b~~, ~~6c~~ (web app, em quatro partes, com os elementos nativos da regra W9 onde a `line://ui` ainda não tem a peça), ~~6d~~. Fase 7: ~~7a~~, ~~7b~~, ~~7c~~, ~~7d~~, ~~7e~~ feitas; falta o fumo manual com clientes MCP reais e a tag (primeiro uma `rc`).
+6. ~~Fase 1~~ feita. ~~Fase 2~~ feita (M2). ~~Fase 3~~ feita. ~~Fase 4~~ feita. ~~Fase 5~~ feita — ~~Fase 6~~ feita: ~~6a~~, ~~6b~~, ~~6c~~ (web app, em quatro partes, com os elementos nativos da regra W9 onde a `line://ui` ainda não tem a peça), ~~6d~~. Fase 7: ~~7a~~, ~~7b~~, ~~7c~~, ~~7d~~, ~~7e~~ feitas; `v0.1.0-rc.2` publicada; falta o fumo manual com clientes MCP reais e a tag final.
