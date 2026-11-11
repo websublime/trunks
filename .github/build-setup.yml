@@ -5,7 +5,9 @@
 - name: Install Node.js
   uses: actions/setup-node@v4
   with:
-    node-version: 22
+    # A range, not "22": a runner image may carry an older 22 in its tool cache, and the
+    # console's build refuses anything below this.
+    node-version: "^22.23.4"
 - name: Build the web console
   shell: bash
   env:

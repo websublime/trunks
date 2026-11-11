@@ -19,3 +19,9 @@ hosting = "github"
 install-updater = false
 # Steps run before each build: the web console is built and embedded into the binary.
 github-build-setup = "../build-setup.yml"
+
+# Windows on ARM is built on a native runner. Cross-compiling it from Linux fails in `ring`,
+# which insists on plain clang for this target while the cross toolchain passes clang-cl flags.
+[dist.github-custom-runners.aarch64-pc-windows-msvc]
+runner = "windows-11-arm"
+host = "aarch64-pc-windows-msvc"
