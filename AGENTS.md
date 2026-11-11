@@ -3,7 +3,8 @@
 Trunks is a self-hosted MCP gateway and registry in Rust. Read `docs/` before non-trivial
 changes: `01-produto.md` (decisions D1–D12), `02-especificacao.md` (contracts and modules),
 `03-plano.md` (phases), `04-arquitectura.md`, `05-roadmap.md`, `06-analise-db.md` (data layer rules),
-`07-desempenho.md` (benchmark results and how to reproduce them). The user guide is `docs/guide/`
+`07-desempenho.md` (benchmark results and how to reproduce them), `08-web-app.md` (web app
+definition: Astro + `line://ui`, no UI framework). The user guide is `docs/guide/`
 (English): update it in the same PR as any change a user or an operator can see.
 `docs/guide/reference/cli.md` is generated: `TRUNKS_UPDATE_DOCS=1 cargo test -p trunks cli_reference`.
 Explicit task instructions take precedence over this file.
@@ -34,7 +35,7 @@ Explicit task instructions take precedence over this file.
 | `crates/trunks-client` | HTTP SDK used by the CLI (public, wire-compatible) |
 | `crates/trunks-dashboard` | `rust-embed` of `web/app` build output |
 | `crates/trunks` | The binary: `start` (server) and management subcommands |
-| `web/app` | Web application built with `line://ui` |
+| `web/app` | Web application: static Astro site with `line://ui` Web Components, no UI framework (`docs/08-web-app.md`) |
 | `xtask` | `cargo xtask build-dashboard`, `cargo xtask ci` |
 | `tests/` | Conformance fixtures (legacy-format DBs) and black-box tests |
 
@@ -64,7 +65,7 @@ cargo run -- start               # server on :8080
 cargo run -- version
 cargo test --workspace
 cargo xtask ci                   # what CI runs
-cargo xtask build-dashboard      # needs Node 20; builds web/app into crates/trunks-dashboard/dist
+cargo xtask build-dashboard      # needs Node 22; builds web/app into crates/trunks-dashboard/dist
 dist plan                        # release artefacts (cargo-dist)
 ```
 

@@ -58,7 +58,7 @@ trunks/
 │   ├── trunks-client/          # SDK HTTP para a REST API (usado pelo CLI; publicável)
 │   ├── trunks/             # clap: comandos; `start` liga tudo. Produz o binário.
 │   └── trunks-dashboard/       # rust-embed do bundle da web app
-├── web/app/                   # web app em Lit + line://ui (D2)
+├── web/app/                   # web app em Astro + line://ui (D18, 08-web-app.md)
 ├── tests/conformance/         # testes black-box contra o binário (ambos os modos, ambas as DBs)
 └── xtask/                     # build do dashboard, geração de docs, release helpers
 ```
@@ -313,7 +313,7 @@ Contrato `/api/v0` (estável dentro de 1.x; shapes detalhados no doc interno de 
 |---|---|---|
 | Público | — | `GET /health` → `{"status":"ok"}`; `GET /metadata` → `{"version"}`; `POST /init {mode}` → dev `{"status"}` / enterprise `{"status","admin_access_token"}`; já inicializado → 400; `mode` diferente daquele com que o processo arrancou → 400 `this server was started in {x} mode and cannot be initialized in {y} mode`, sem nada gravado; `GET /metrics` (se activo) |
 | Auth (browser, D16) | — (só actuam em enterprise; dev → 403 `ENTERPRISE_ONLY`) | `GET /auth/config`, `GET /auth/login?return_to=`, `GET /auth/callback`, `POST /auth/token`, `POST /auth/logout` |
-| Dashboard static | `require_initialized` (a web app autentica-se contra a API; D15) | `GET /`, `/index.html`, `/assets/*` |
+| Web app (estáticos) | `require_initialized`; públicos (cascas sem dados — a web app autentica-se contra a API; D15, D18) | `GET` de qualquer caminho fora dos prefixos do servidor: ficheiro exacto → `<caminho>/index.html` → `404.html` com 404; assets em `/_astro/*` (`08-web-app.md` §8) |
 | MCP | `require_initialized`, `mcp_client_auth` | `ANY /mcp`, `ANY /v0/groups/{name}/mcp` |
 | REST user | `require_initialized`, `user_auth` | `GET /api/v0/servers`, `/tools?server=`, `/tool?name=`, `POST /tools/invoke`, `GET /resources?server=`, `POST /resources/get`, `/resources/read`, `GET /prompts?server=`, `/prompt?name=`, `POST /prompts/render`, `GET /users/whoami` (+enterprise) |
 | REST admin | + `require_admin` | `POST /servers?force=`, `POST /upstream_oauth/sessions/{id}/complete`, `DELETE /servers/{name}`, `POST /servers/{name}/enable\|disable`, `GET /server_configs`, `POST /tools/enable\|disable?entity=`, `POST /prompts/enable\|disable?entity=`, `GET/POST /clients`, `PUT/DELETE /clients/{name}` (+enterprise), `GET/POST /users`, `PUT/DELETE /users/{username}` (+enterprise), `GET/POST /tool-groups`, `GET/PUT/DELETE /tool-groups/{name}`, `GET /tool-groups/{name}/effective-tools` |
@@ -367,7 +367,7 @@ Middleware:
 - Body limit: 4 MiB (`trunks_api::BODY_LIMIT`) em REST (`DefaultBodyLimit`) e em MCP (`max_request_body_bytes` do rmcp, fixado explicitamente); acima → 413.
 - Clientes lentos (`trunks_api::serve`, o accept loop próprio sobre `hyper-util`): o cabeçalho completo de um pedido tem de chegar em 30 s — contados desde a ligação, incluindo a fase em que ainda não se sabe se é HTTP/1 ou HTTP/2 —, senão a ligação é fechada (o mesmo prazo fecha ligações keep-alive paradas); o corpo de um pedido MCP não pode ficar mais de 30 s sem dados (em REST o corpo é coberto pelo prazo do pedido); ligações HTTP/2 são verificadas com ping de 30 em 30 s. Todas as ligações aceites têm `TCP_NODELAY`: as respostas MCP são um cabeçalho seguido de um evento pequeno, e com o algoritmo de Nagle o evento esperava pelo ACK (atrasado) do cabeçalho — cerca de 40 ms a mais em cada resposta pequena para clientes que reutilizam a ligação.
 
-Web app: `trunks-dashboard` embebe o bundle de `web/app` (Lit + `line://ui`) com `rust-embed`; build via `cargo xtask build-dashboard` (`npm ci && npm run build`, copia para `crates/trunks-dashboard/dist`). Rotas `/`, `/index.html`, `/assets/*`; sem SPA fallback em v1. `summarize_server_config` nunca emite `bearer_token`, valores de `env`, header `authorization` (case-insensitive), userinfo/query/fragment de URLs; `command` truncado a 80 chars.
+Web app (D18, `08-web-app.md`): `trunks-dashboard` embebe o build estático de `web/app` (Astro + `line://ui`) com `rust-embed`; build via `cargo xtask build-dashboard` (`npm ci`, `astro check`, `astro build`, copia para `crates/trunks-dashboard/dist`; Node 22 LTS, só para construir). Resolução: ficheiro exacto → `<caminho>/index.html` → `404.html` com 404; assets com hash em `/_astro/*` (`immutable`), HTML `no-cache`; sem SPA fallback (cada ecrã é uma página). Tipos TypeScript da app gerados dos tipos Rust, com teste de deriva. `summarize_server_config` nunca emite `bearer_token`, valores de `env`, header `authorization` (case-insensitive), userinfo/query/fragment de URLs; `command` truncado a 80 chars.
 
 ## 6. SDK (`trunks-client`)
 

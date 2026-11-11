@@ -66,7 +66,7 @@ flowchart TB
         core["Domínio<br/>registry · catalog · gateway · sessions · oauth · identity · groups"]
         dbl["Camada de dados<br/>(SQL explícito, migrações)"]
         up["Upstream connections<br/>(rmcp client: child-process, streamable-http)"]
-        spa["Web app embebida (line://ui)<br/>(rust-embed, só dev em v1.0)"]
+        spa["Web app embebida (Astro + line://ui)<br/>(rust-embed)"]
         met["/metrics (prometheus-client)"]
         http --> rest & mcp & spa & met
         rest --> core
@@ -89,7 +89,7 @@ flowchart TB
 | Domínio | `trunks-core` | regras de negócio, autorização, catálogo | `Catalog` (ArcSwap), `SessionManager` (DashMap) |
 | Camada de dados | `trunks-db` | SQL, migrações, dois dialectos | — |
 | Upstream connections | `rmcp` client | ligações stdio/http, OAuth client | processos filhos, ligações HTTP |
-| Web app | Lit + `line://ui` | UI dev-only em v1.0; consola autenticada a partir de v2.0 | browser |
+| Web app | Astro estático + `line://ui` (D18) | Consola em ambos os modos; cascas estáticas embebidas no binário, dados pela API | browser |
 | CLI | clap + `trunks-client` | gestão via REST | `~/.trunks.conf` |
 
 ## 4. Vista de componentes (C4 nível 3) — crates e módulos
@@ -344,7 +344,8 @@ flowchart LR
     route -- "/api/v0/**" --> ua["user_auth<br/>dev: DevOpen · ent: bearer→User"] --> adm{"rota admin?"} -- sim --> ra["require_admin<br/>403"] --> h1["handler REST"]
     adm -- não --> h1
     route -- "/mcp, /v0/groups/{g}/mcp" --> ca["mcp_client_auth<br/>dev: DevOpen · ent: bearer→McpClient<br/>(token de user → 401)"] --> svc["StreamableHttpService<br/>→ GatewayHandler"]
-    route -- "/, /assets, /api/dashboard/**" --> dm["require_dev_mode<br/>404 em enterprise"] --> h2["dashboard"]
+    route -- "/api/dashboard/**" --> ua2["user_auth"] --> h2["dashboard<br/>(vistas pelo AccessSet)"]
+    route -- "/, /_astro/**, páginas" --> st["estáticos da web app<br/>(sem dados)"]
     route -- "/health /metadata /init /metrics" --> pub["sem auth"]
 ```
 
@@ -559,7 +560,7 @@ Propriedade central: `UpstreamConn::connect(config)` não recebe o pedido downst
 | A6 | SQL explícito, sem ORM (D11) | sea-orm / diesel | Decisão do produto; controlo do SQL em dois dialectos; schema é pequeno (10 tabelas) |
 | A7 | `snafu` com um `Error` por crate (D10) | `thiserror` + `anyhow` | Context selectors obrigam a classificar erros na fronteira de cada camada |
 | A8 | Sem SSE (D4) | Implementar SSE à mão | Deprecado no spec; `rmcp` não o tem; custo sem retorno |
-| A9 | Web app em Lit + `line://ui`, embebida no binário (D2) | React; Rust/WASM | Design system próprio; a app cresce para consola autenticada (OIDC, orgs) |
+| A9 | Web app em Astro estático + `line://ui`, sem framework de UI, embebida no binário (D2, D18) | React (ou outro framework de UI, também como ilhas Astro); SPA em Lit + Vite (definição anterior); Astro com SSR; Rust/WASM | Design system próprio em Web Components; páginas como documentos estáticos servem-se do binário sem Node e sem router de cliente; a app cresce para consola autenticada (OIDC, orgs). Detalhe em `08-web-app.md` |
 | A10 | `cargo-dist` para release (D9) | pipeline à mão com Actions | Padrão do ecossistema; instaladores e checksums incluídos |
 | A11 | `prometheus-client` directo, sem OTel SDK | OTel SDK + exporter Prometheus | Sem OTLP em v1, OTel só adiciona peso; reavaliar quando OTLP entrar (v3) |
 | A12 | Rust 2024, `clippy::unwrap_used` em `core`/`api` | — | Sem panics em request path |

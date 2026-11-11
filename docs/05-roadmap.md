@@ -37,7 +37,7 @@ flowchart LR
 Conforme `03-plano.md`; a Fase 6 entrega a primeira versão da web app em `line://ui` (D2).
 
 ### 3.1 Web app v0 (`web/app`)
-- Stack: Lit + `line://ui` (`@websublime/line-*`), Vite, TypeScript. Sem framework de router pesado; `line-` components, tokens `--line-*`, dark-first como o showcase.
+- Stack: Astro estático + `line://ui` (`@websublime/line-*`), TypeScript, sem framework de UI nem router de cliente (D18, `08-web-app.md`); `line-` components, tokens `--line-*`, dark-first como o showcase.
 - Âmbito, contra a API `/api/dashboard/*`: overview, servidores (registar incl. OAuth upstream via popup + polling, apagar, toggle), tools/prompts (toggle), tool groups (criar/apagar), resources, diagnósticos.
 - Em v1 a web app existe em ambos os modos, autenticada em enterprise (token ou OIDC, D15/D16); `/api/dashboard` é só leitura e as mutações usam `/api/v0`.
 - Embebida em `crates/trunks-dashboard` via `cargo xtask build-dashboard`.
