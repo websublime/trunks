@@ -467,6 +467,30 @@ impl IdentityService {
         self.access.grants(target).await
     }
 
+    /// The grants a user's access comes from: their own first, then each team's, in the
+    /// order of `teams`.
+    pub async fn grants_behind(
+        &self,
+        user: &UserRecord,
+        teams: &[(TeamRecord, TeamRole)],
+    ) -> Result<Vec<GrantRecord>> {
+        let subjects = std::iter::once((SubjectKind::User, user.id, user.username.as_str()))
+            .chain(teams.iter().map(|(t, _)| (SubjectKind::Team, t.id, t.name.as_str())));
+        let mut behind = Vec::new();
+        for (kind, id, name) in subjects {
+            for grant in self.access.grants_for_subject(kind, id).await? {
+                behind.push(GrantRecord {
+                    subject_kind: kind,
+                    subject_id: id,
+                    subject_name: name.to_owned(),
+                    target_kind: grant.target_kind,
+                    target_name: grant.target_name,
+                });
+            }
+        }
+        Ok(behind)
+    }
+
     /// Validates the target name (`*` only for servers) and records the grant. Idempotent.
     pub async fn grant(
         &self,

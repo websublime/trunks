@@ -422,6 +422,10 @@ pub struct WhoAmI {
     #[serde(default)]
     pub teams: Vec<TeamMembership>,
     pub access: AccessView,
+    /// Where `access` comes from: the grants held by the user and by each of their teams.
+    /// An administrator's access does not come from grants; theirs are listed all the same.
+    #[serde(default)]
+    pub grants: Vec<GrantSpec>,
 }
 
 /// `POST /api/v0/clients` body (enterprise). Admins may set any `owner` or none; a regular

@@ -89,8 +89,11 @@ First public version. Everything below is new.
 - Managing the gateway (administrators; everyone in development mode): register a server as a
   local process or a remote one, including the OAuth authorization of a remote server in the
   browser; enable and disable servers, tools, prompts and resources; delete a server; create,
-  change and delete tool groups. Users, teams, MCP clients and grants are still managed with
-  the CLI or the API.
+  change and delete tool groups.
+- Identities and access in enterprise mode: MCP clients (create, replace the token, delete),
+  users (add, replace the token, delete), teams and their members, grants, and an account
+  page that says what you can use and through which grant. A token is shown once, in a
+  dialog, and kept nowhere by the console.
 
 ### Not in this version
 

@@ -31,6 +31,15 @@ export const NAVIGATION: Section[] = [
     ],
   },
   {
+    title: 'Access',
+    pages: [
+      { href: '/clients/', label: 'MCP clients', icon: 'clients', audience: 'enterprise' },
+      { href: '/users/', label: 'Users', icon: 'user', audience: 'enterprise-admin' },
+      { href: '/teams/', label: 'Teams', icon: 'teams', audience: 'enterprise' },
+      { href: '/access/', label: 'Access', icon: 'lock', audience: 'enterprise-admin' },
+    ],
+  },
+  {
     title: 'System',
     pages: [{ href: '/diagnostics/', label: 'Diagnostics', icon: 'diagnostics', audience: 'admin' }],
   },
@@ -43,6 +52,9 @@ const DETAIL_PAGES = [
   '/groups/detail/',
   '/groups/new/',
   '/groups/edit/',
+  '/clients/new/',
+  '/teams/detail/',
+  '/account/',
 ];
 
 const HREFS = new Set([

@@ -57,6 +57,10 @@ console, which is embedded in the binary:
 | `/groups/`, `/groups/detail/?name=<group>` | tool groups; one group with its endpoint and effective tools |
 | `/groups/new/`, `/groups/edit/?name=<group>` | create or change a tool group (administrators) |
 | `/diagnostics/` | configuration and failing upstreams (administrators) |
+| `/clients/`, `/clients/new/` | MCP clients: the viewer's own and their teams', all for an administrator; create one (enterprise mode) |
+| `/users/`, `/access/` | users; grants (enterprise mode, administrators) |
+| `/teams/`, `/teams/detail/?name=<team>` | teams and their members (enterprise mode) |
+| `/account/` | who the viewer is, what they can use and through which grant (enterprise mode) |
 
 The
 files are static and the same for everyone, so they need no authentication; everything they
@@ -108,7 +112,7 @@ For any user. Base path `/api/v0`.
 | `GET /tool-groups` | | `[ToolGroup]` |
 | `GET /tool-groups/{name}` | | `ToolGroup` plus `streamable_http_endpoint` |
 | `GET /tool-groups/{name}/effective-tools` | | `[Tool]` |
-| `GET /users/whoami` | enterprise mode | `{"username", "role", "teams":[{"name","role"}], "access":{"all","servers":[],"tool_groups":[]}}` |
+| `GET /users/whoami` | enterprise mode | `{"username", "role", "teams":[{"name","role"}], "access":{"all","servers":[],"tool_groups":[]}, "grants":[grant]}`; `grants` are the caller's own grants and their teams', which `access` is derived from |
 
 In `POST /tools/invoke` the tool's arguments are the other members of the same object, next to
 `name`:

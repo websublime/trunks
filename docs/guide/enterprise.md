@@ -159,8 +159,29 @@ curl -s https://trunks.example.com/api/v0/users/whoami -H "Authorization: Bearer
 
 ```json
 {"username":"ana","role":"user","teams":[{"name":"platform","role":"maintainer"}],
- "access":{"all":false,"servers":["github"],"tool_groups":[]}}
+ "access":{"all":false,"servers":["github"],"tool_groups":[]},
+ "grants":[{"subject_kind":"team","subject":"platform","target_kind":"server","target":"github"}]}
 ```
+
+`grants` lists where the access comes from: your own grants and those of your teams.
+
+## In the web console
+
+Everything in this chapter can also be done in the console, under **Access** in the navigation:
+
+| Page | Who | Does |
+|---|---|---|
+| **MCP clients** | every user | lists your clients and your teams' (all, for an administrator); creates one, replaces its token, deletes it |
+| **Users** | administrators | adds a user, replaces a user's token, deletes a user |
+| **Teams** | every user reads; administrators create and delete; maintainers manage their team's members | members and their roles |
+| **Access** | administrators | adds and revokes grants |
+| **Account** (in the menu with your name) | every user | what you can use and through which grant; sign out |
+
+A token is shown once, when it is created or replaced, in a dialog that only closes with
+"Done". The console keeps it nowhere.
+
+Two things are not in the console: changing a client's allow list
+(`trunks update mcp-client <name> --allow …`) and changing a team's description (API only).
 
 ## Single sign-on (OIDC)
 
