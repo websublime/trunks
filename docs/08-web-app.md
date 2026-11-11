@@ -172,30 +172,48 @@ O job `web` do CI corre os três primeiros e o fumo; a conformidade da Fase 7 ga
 
 ## 11. O que a app precisa da `line://ui`
 
-Por ordem de necessidade. A coluna da direita diz que ecrãs ficam bloqueados sem a peça.
+Estado da biblioteca visto no Storybook publicado em 2026-11-11. **Existem**: `alert`
+(com regiões live e receita de dismiss), `badge`, `button` (com toggle e estado loading),
+`button-group`, `chip` (com a receita de barra de filtros), `icon`, `icon-button`,
+`separator`, `stack`; mais os tokens de paleta, os papéis semânticos e o tema claro/escuro.
 
-| Prioridade | Componentes | Desbloqueia |
-|---|---|---|
-| P0 | botão, ligação, campo de texto com label e erro, badge de estado, alerta, spinner/skeleton, navegação lateral | login, overview, todas as listagens só de leitura |
-| P0 | tabela (ou lista estruturada) com estado vazio | servidores, tools, prompts, resources, grupos |
-| P1 | switch, diálogo (confirmação e "token mostrado uma vez"), toast, botão de copiar | activar/desactivar, apagar, criar user e MCP client |
-| P1 | select, textarea, tabs | registar servidor (stdio / HTTP), detalhe de servidor |
-| P2 | combobox, menu, tooltip | grants (escolher sujeito e alvo), acções por linha |
-| P2 | editor de pares chave-valor (composto, da app) | `env` e headers no registo de um servidor |
+O que a app precisa, por ordem de necessidade, e como se arranja enquanto a peça não existe:
 
-O que não existir ainda na `line://ui` não se substitui por outra biblioteca: o ecrã espera, ou
-usa HTML nativo com os tokens `--line-*` até a peça existir.
+| Prioridade | Peça | Na `line://ui` | Até existir | Ecrãs |
+|---|---|---|---|---|
+| P0 | botão, botão de ícone, grupo de botões | existe | | todos |
+| P0 | badge de estado, alerta, separador, stack | existe | | overview, listagens, erros |
+| P0 | filtros (chips) | existe | | tools, prompts, resources |
+| P0 | campo de texto com label e erro | **falta** | `<input>` e `<label>` nativos com tokens | login, formulários |
+| P0 | tabela com estado vazio | **falta** | `<table>` nativa com tokens | todas as listagens |
+| P0 | navegação lateral, ligação | **falta** | `<nav>` e `<a>` nativos com tokens | casca |
+| P0 | spinner / skeleton | parcial (loading do botão) | CSS da app | estados a carregar |
+| P1 | diálogo (confirmação; "token mostrado uma vez") | **falta** | `<dialog>` nativo | apagar, criar user e MCP client |
+| P1 | switch | parcial (botão toggle) | botão toggle | activar/desactivar |
+| P1 | toast | parcial (alerta live) | alerta live | resultado de uma acção |
+| P1 | select, textarea | **falta** | elementos nativos | registar servidor |
+| P1 | tabs | **falta** | secções na mesma página | detalhe de servidor |
+| P2 | combobox, menu, tooltip | **falta** | select nativo; botões por linha; `title` | grants, acções por linha |
+| P2 | editor de pares chave-valor | composto, da app | | `env` e headers |
+
+Regra: o que não existir na `line://ui` **não se substitui por outra biblioteca**. Usa-se o
+elemento HTML nativo com os tokens `--line-*`, isolado num elemento `trunks-*`, para que a
+troca pela peça da `line://ui` seja local quando ela existir.
+
+Para a `line://ui`, a ordem que mais serve o Trunks é: campo de texto, tabela, diálogo,
+select, tabs, switch, toast, menu, tooltip, combobox.
 
 ## 12. Entrega por partes
 
-A app não precisa de esperar pela biblioteca inteira:
+Com o que existe hoje, nenhuma parte fica bloqueada: as primitivas em falta têm um elemento
+nativo que serve. O que muda é a qualidade do resultado, e por isso a ordem:
 
-| Parte | Conteúdo | Precisa de |
+| Parte | Conteúdo | Com a `line://ui` de hoje |
 |---|---|---|
-| **6c-1** | esqueleto Astro, servir no Rust, geração de tipos, login, overview, CI `web` e fumo mínimo | P0 |
-| **6c-2** | catálogo só de leitura: servidores e detalhe, tools, prompts, resources, grupos, diagnóstico | P0 |
-| **6c-3** | gestão em development: registar (incl. OAuth), activar/desactivar, apagar, grupos | P1 |
-| **6c-4** | gestão em enterprise: users, teams, MCP clients, grants, conta | P1, P2 |
+| **6c-1** | esqueleto Astro, servir no Rust, geração de tipos, login, overview, CI `web` e fumo mínimo | pode arrancar; o campo do login é nativo |
+| **6c-2** | catálogo só de leitura: servidores e detalhe, tools, prompts, resources, grupos, diagnóstico | pode arrancar; tabelas nativas, filtros com chips |
+| **6c-3** | gestão em development: registar (incl. OAuth), activar/desactivar, apagar, grupos | possível, mas é onde mais se nota a falta de campo, diálogo e select; melhor depois de existirem |
+| **6c-4** | gestão em enterprise: users, teams, MCP clients, grants, conta | idem, mais combobox e menu |
 
 Cada parte é um PR com o seu fumo. A 6c-1 e a 6c-2 dão uma consola só de leitura utilizável;
 o CLI cobre o resto enquanto as partes seguintes não chegam.
@@ -212,3 +230,4 @@ o CLI cobre o resto enquanto as partes seguintes não chegam.
 | W6 | Tipos TypeScript gerados dos tipos Rust, com teste de deriva | tipos escritos à mão; OpenAPI | uma só fonte para os contratos, sem um documento OpenAPI para manter |
 | W7 | Sem `<ClientRouter />` na primeira versão | view transitions desde o início | menos ciclo de vida para gerir; pode entrar depois sem mudar a arquitectura |
 | W8 | Entrega em quatro partes, as duas primeiras só de leitura | esperar pela `line://ui` completa | a consola de leitura é útil cedo e fixa a arquitectura |
+| W9 | Peça em falta na `line://ui` → elemento HTML nativo com tokens, dentro de um `trunks-*` | outra biblioteca de componentes; esperar | não entra um segundo design system; a troca posterior fica contida num elemento |
