@@ -130,7 +130,7 @@ jobs:
       - name: "Install Node.js"
         uses: "actions/setup-node@v4"
         with:
-          "node-version": 22
+          "node-version": "^22.23.4"
       - name: "Build the web console"
         run: |
           cd web/app
@@ -145,6 +145,10 @@ jobs:
         shell: "bash"
         env:
           "ASTRO_TELEMETRY_DISABLED": "1"
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: ${{ join(matrix.targets, '-') }}
+          cache-provider: ${{ matrix.cache_provider }}
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest
