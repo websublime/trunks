@@ -1,4 +1,5 @@
 # Steps the release workflow runs before building each binary (dist: `github-build-setup`).
+# It lives outside `workflows/` because it is a list of steps, not a workflow.
 # The console (web/app) is a static build embedded into the binary at compile time; a
 # release without it is a broken release, so the last step fails when it is missing.
 - name: Install Node.js
