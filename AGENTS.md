@@ -33,10 +33,10 @@ Explicit task instructions take precedence over this file.
 | `crates/trunks-db` | `sqlx` over SQLite/PostgreSQL (no ORM): one SQL string per operation with `$N` placeholders, per-dialect migrations, implementations of the ports |
 | `crates/trunks-api` | axum router, middleware, REST handlers, MCP mounts, dashboard API, error → HTTP mapping |
 | `crates/trunks-client` | HTTP SDK used by the CLI (public, wire-compatible) |
-| `crates/trunks-dashboard` | `rust-embed` of `web/app` build output |
+| `crates/trunks-dashboard` | `rust-embed` of `web/app` build output and the rules that resolve a request path to one of its files |
 | `crates/trunks` | The binary: `start` (server) and management subcommands |
 | `web/app` | Web application: static Astro site with `line://ui` Web Components, no UI framework (`docs/08-web-app.md`) |
-| `xtask` | `cargo xtask build-dashboard`, `cargo xtask ci` |
+| `xtask` | `cargo xtask build-dashboard`, `cargo xtask gen-types`, `cargo xtask ci` |
 | `tests/` | Conformance fixtures (legacy-format DBs) and black-box tests |
 
 Dependency rules: `types ← core ← {db, api}`; `client` depends only on `types`; only the binary
@@ -65,7 +65,8 @@ cargo run -- start               # server on :8080
 cargo run -- version
 cargo test --workspace
 cargo xtask ci                   # what CI runs
-cargo xtask build-dashboard      # needs Node 22; builds web/app into crates/trunks-dashboard/dist
+cargo xtask build-dashboard      # needs Node 22; checks, tests and builds web/app into crates/trunks-dashboard/dist
+cargo xtask gen-types            # web/app/src/api/types.gen.ts from the Rust API types (a test fails when it drifts)
 dist plan                        # release artefacts (cargo-dist)
 ```
 

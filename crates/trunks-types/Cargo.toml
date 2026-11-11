@@ -16,6 +16,11 @@ base64 = { workspace = true }
 regex = { workspace = true }
 url = { workspace = true }
 chrono = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[features]
+# Derives `ts_rs::TS` on the API types; used by `cargo xtask gen-types` only.
+ts = ["dep:ts-rs"]
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

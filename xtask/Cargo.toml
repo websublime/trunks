@@ -6,3 +6,7 @@ publish = false
 license.workspace = true
 
 [dependencies]
+# The API types, with their TypeScript declarations, for `cargo xtask gen-types`.
+trunks-types = { workspace = true, features = ["ts"] }
+trunks-core = { workspace = true, features = ["ts"] }
+ts-rs = { workspace = true }

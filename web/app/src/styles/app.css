@@ -1,0 +1,55 @@
+/*
+ * What the console adds to the design reference's rules: the boot states of a static page
+ * and the few layout helpers that replace inline styles (the server's Content-Security-Policy
+ * allows none).
+ */
+
+/* A page is a shell until the server has said who is looking at it. */
+html:not([data-state='ready']) .app > *,
+html:not([data-state='ready']) .gate{visibility:hidden}
+.boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:var(--line-gray-text-low)}
+html[data-state] .boot{display:none}
+html[data-state='failed'] .app > *{visibility:hidden}
+.boot-failed{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:var(--line-size-3)}
+html[data-state='failed'] .boot-failed{display:flex}
+.boot-failed .alert{max-width:var(--line-size-md)}
+
+.logo{flex:none}
+.tk .brand{color:var(--line-gray-12);text-decoration:none}
+/* An element that fills the page's content area lays its sections out like the page does. */
+.view{display:flex;flex-direction:column;gap:var(--line-size-5);min-width:0}
+.skip{position:absolute;left:var(--line-size-2);top:-10rem;z-index:10}
+.skip:focus{top:var(--line-size-2)}
+
+/* user menu: a native disclosure until line://ui has a menu */
+.umenu{position:relative}
+.umenu > summary{list-style:none}
+.umenu > summary::-webkit-details-marker{display:none}
+.umenu > .pop{position:absolute;right:0;top:calc(100% + var(--line-size-1));z-index:5;display:flex;flex-direction:column}
+.umenu .opt{border:0;background:transparent;font:inherit;text-align:left;cursor:pointer;text-decoration:none;width:100%}
+.umenu .opt:hover,.umenu .opt:focus-visible{background:var(--line-gray-bg-hover)}
+
+/* overview */
+.stat + .stat.sep-l{border-left:var(--line-border-1) solid var(--line-gray-6)}
+.flush{gap:0}
+.card{text-decoration:none;color:inherit}
+.tk a.card{color:inherit;text-decoration:none}
+.tk a.card:hover{background:var(--line-gray-bg)}
+.grow{flex:1}
+.tight{gap:var(--line-size-1)}
+.snug{gap:var(--line-size-2)}
+
+/* bare pages: sign-in, not initialized */
+.bare{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--line-size-5);padding:var(--line-size-3)}
+.bare > *{width:100%;display:flex;flex-direction:column;align-items:center;gap:var(--line-size-5)}
+/* the field's wrapper shows the focus ring; the input inside must not add a second one */
+.tk .inp :is(input,select,textarea):focus-visible{outline:0}
+.bare .panel{width:100%;max-width:var(--line-size-sm);padding:var(--line-size-7) var(--line-size-5);display:flex;flex-direction:column;gap:var(--line-size-5)}
+.bare .panel.wide{max-width:var(--line-size-md)}
+.bare h1{font-size:var(--line-font-size-4);font-weight:var(--line-font-weight-6);line-height:var(--line-leading-2)}
+.bare .head{align-items:flex-start;gap:var(--line-size-3)}
+.or{flex-wrap:nowrap;color:var(--line-gray-text-low);font-size:var(--line-font-size-0)}
+.or .sep{flex:1;margin:0}
+.form.close{gap:var(--line-size-3)}
+line-button.wide{width:100%}
+line-button.wide::part(root){width:100%}

@@ -56,6 +56,7 @@ pub enum NameError {
 
 /// A validated upstream server name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(transparent)]
 pub struct ServerName(String);
 
@@ -91,6 +92,7 @@ impl<'de> Deserialize<'de> for ServerName {
 
 /// `<server>__<local>` — the name under which a tool or prompt is exposed by the gateway.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(type = "string"))]
 pub struct CanonicalName {
     server: ServerName,
     local: String,
@@ -142,6 +144,7 @@ impl<'de> Deserialize<'de> for CanonicalName {
 
 /// `trunks://res/<server>/<base64(original)>` — the URI under which a resource is exposed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(type = "string"))]
 pub struct ResourceUri {
     server: ServerName,
     original: String,
@@ -219,6 +222,7 @@ impl<'de> Deserialize<'de> for ResourceUri {
 
 /// A validated tool-group name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(transparent)]
 pub struct GroupName(String);
 

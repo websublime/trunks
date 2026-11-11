@@ -7,3 +7,4 @@ pub mod identities;
 pub mod invoke;
 pub mod public;
 pub mod registry;
+pub mod web;

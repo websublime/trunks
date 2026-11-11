@@ -18,6 +18,8 @@ on:
       - "Dockerfile"
       - ".dockerignore"
       - ".github/workflows/docker.yml"
+      - "web/app/**"
+      - "crates/trunks-dashboard/**"
   workflow_dispatch:
 
 permissions:
@@ -74,6 +76,8 @@ jobs:
             docker logs "$container" 2>&1 | tail -n 20
             # Development mode is the default: the registry answers without a token.
             curl --fail --silent --show-error http://127.0.0.1:8080/api/v0/servers
+            # The console is embedded in the binary: its first page is served.
+            curl --fail --silent --show-error http://127.0.0.1:8080/ | grep --quiet "<title>Overview · Trunks</title>"
             # SIGTERM stops it cleanly.
             docker stop --time 20 "$container" >/dev/null
             test "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = "0"

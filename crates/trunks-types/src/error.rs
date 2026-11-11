@@ -53,6 +53,7 @@ pub mod messages {
 
 /// `{"error": "...", "code": "..."}`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ApiErrorResponse {
     pub error: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

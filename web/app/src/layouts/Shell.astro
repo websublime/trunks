@@ -1,0 +1,108 @@
+---
+// The console's shell: navigation, header and the page's content. The markup is the same
+// for everyone; <trunks-shell> asks the server who is looking and shows only their part.
+import Base from './Base.astro';
+import Icon from '../components/Icon.astro';
+import Logo from '../components/Logo.astro';
+import { NAVIGATION } from '../lib/nav';
+
+interface Props {
+  title: string;
+  /** `href` of the page in the navigation, to mark it as the current one. */
+  current?: string;
+}
+const { title, current } = Astro.props;
+---
+
+<Base title={title}>
+  <a class="btn skip" href="#main">Skip to content</a>
+  <trunks-shell>
+    <div class="app">
+      <nav class="nav" aria-label="Main">
+        <a class="brand" href="/"><Logo />Trunks</a>
+        {
+          NAVIGATION.map((section) => (
+            <div class="nav-sec" data-section>
+              <div class="nav-h" id={`nav-${section.title}`}>
+                {section.title}
+              </div>
+              <ul aria-labelledby={`nav-${section.title}`}>
+                {section.pages.map((page) => (
+                  <li data-audience={page.audience} data-href={page.href}>
+                    <a class="nav-a" href={page.href} aria-current={page.href === current ? 'page' : undefined}>
+                      <Icon name={page.icon} />
+                      {page.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
+        }
+      </nav>
+      <div class="main">
+        <details class="mbar">
+          <summary>
+            <Icon name="menu" /><Logo /><strong>Trunks</strong><span class="vh"> menu</span>
+          </summary>
+          <nav class="mnav" aria-label="Main (menu)">
+            {
+              NAVIGATION.map((section) => (
+                <div class="nav-sec" data-section>
+                  <div class="nav-h" id={`mnav-${section.title}`}>
+                    {section.title}
+                  </div>
+                  <ul aria-labelledby={`mnav-${section.title}`}>
+                    {section.pages.map((page) => (
+                      <li data-audience={page.audience} data-href={page.href}>
+                        <a class="nav-a" href={page.href} aria-current={page.href === current ? 'page' : undefined}>
+                          <Icon name={page.icon} />
+                          {page.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            }
+          </nav>
+        </details>
+        <header class="hdr">
+          <span class="bdg accent" data-mode><Icon name="shield" /><span data-mode-label></span></span>
+          <span class="small lo hide-s" data-mode-note hidden>No sign-in. Everything is visible.</span>
+          <span class="sp"></span>
+          <span class="ver" title="Trunks version" data-version></span>
+          <details class="umenu" data-user hidden>
+            <summary class="btn">
+              <Icon name="user" /><span data-username></span><span class="small lo hide-s" data-role></span><Icon
+                name="chevronDown"
+              />
+            </summary>
+            <div class="pop">
+              <div class="opt-h">Signed in as <span data-username></span></div>
+              <button type="button" class="opt" data-sign-out>Sign out</button>
+            </div>
+          </details>
+        </header>
+        <main class="content" id="main">
+          <slot />
+        </main>
+      </div>
+    </div>
+  </trunks-shell>
+  <div class="boot" role="status"><Icon name="spinner" class="ic-lg spin" label="Loading" /></div>
+  <div class="boot-failed">
+    <div class="alert danger" role="alert">
+      <Icon name="alert" />
+      <div class="bd">
+        <span class="ttl">The server could not be reached</span>
+        <span data-boot-error>Check that Trunks is running, then try again.</span>
+        <div class="act"><a class="btn" href="">Try again</a></div>
+      </div>
+    </div>
+  </div>
+</Base>
+
+<script>
+  import '../elements/trunks-shell';
+</script>

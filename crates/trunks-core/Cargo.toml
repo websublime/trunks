@@ -8,8 +8,13 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# Derives `ts_rs::TS` on the dashboard types; used by `cargo xtask gen-types` only.
+ts = ["dep:ts-rs", "trunks-types/ts"]
+
 [dependencies]
 trunks-types = { workspace = true }
+ts-rs = { workspace = true, optional = true }
 snafu = { workspace = true }
 async-trait = { workspace = true }
 rand = { workspace = true }

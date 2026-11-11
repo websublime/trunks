@@ -164,9 +164,9 @@ curl -s https://trunks.example.com/api/v0/users/whoami -H "Authorization: Bearer
 
 ## Single sign-on (OIDC)
 
-Trunks can sign people in through an OpenID Connect provider. This is a browser sign-in
-(`/auth/login`) that opens a session cookie for the web application, which is not part of
-this version yet; the CLI and MCP clients keep using access tokens.
+Trunks can sign people in through an OpenID Connect provider. This is a browser sign-in: the
+console's sign-in page shows "Sign in with SSO" next to the access-token field, and a
+successful sign-in opens a session cookie. The CLI and MCP clients keep using access tokens.
 
 At the identity provider, register a client with the redirect URI
 `<public URL>/auth/callback`. Then start Trunks with:

@@ -71,8 +71,17 @@ pub fn router(state: AppState) -> Router {
     router_with(state, HttpOptions::default())
 }
 
-/// Builds the full application router.
+/// Builds the full application router, serving the web app embedded in the binary.
 pub fn router_with(state: AppState, opts: HttpOptions) -> Router {
+    router_with_web(state, opts, std::sync::Arc::new(trunks_dashboard::Embedded))
+}
+
+/// Builds the full application router, serving the web app from `web`.
+pub fn router_with_web(
+    state: AppState,
+    opts: HttpOptions,
+    web: std::sync::Arc<dyn trunks_dashboard::Source>,
+) -> Router {
     let api_v0 = Router::new()
         .merge(routes::registry::user_router())
         .merge(routes::groups::read_router())
@@ -121,6 +130,11 @@ pub fn router_with(state: AppState, opts: HttpOptions) -> Router {
     if state.metrics.is_some() {
         app = app.route("/metrics", get(routes::public::metrics));
     }
+    // Anything else is a page or a file of the web app.
+    let app = app.fallback(move |req: axum::extract::Request| {
+        let web = web.clone();
+        async move { routes::web::serve(&web, &req) }
+    });
     app.layer(
         tower_http::trace::TraceLayer::new_for_http()
             .make_span_with(access_log)

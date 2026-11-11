@@ -3,14 +3,17 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+mod ts_types;
+
 fn main() -> ExitCode {
     let task = std::env::args().nth(1);
     let root = project_root();
     let result = match task.as_deref() {
         Some("build-dashboard") => build_dashboard(&root),
+        Some("gen-types") => ts_types::write(&root),
         Some("ci") => ci(&root),
         _ => {
-            eprintln!("usage: cargo xtask <build-dashboard|ci>");
+            eprintln!("usage: cargo xtask <build-dashboard|gen-types|ci>");
             return ExitCode::FAILURE;
         }
     };
@@ -30,14 +33,19 @@ fn project_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Builds `web/dashboard` with npm and copies the bundle into `crates/trunks-dashboard/dist`.
+/// Checks, tests and builds `web/app` with npm and copies the build into
+/// `crates/trunks-dashboard/dist`, where the next `cargo build` embeds it.
 fn build_dashboard(root: &Path) -> Result<(), String> {
     let web = root.join("web/app");
     let out = root.join("crates/trunks-dashboard/dist");
+    // On Windows npm is a script, which only its full name starts.
+    let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
     if !web.join("node_modules").exists() {
-        run("npm", &["ci"], &web)?;
+        run(npm, &["ci", "--no-audit", "--no-fund"], &web)?;
     }
-    run("npm", &["run", "build"], &web)?;
+    run(npm, &["run", "check"], &web)?;
+    run(npm, &["test"], &web)?;
+    run(npm, &["run", "build"], &web)?;
     if out.exists() {
         std::fs::remove_dir_all(&out).map_err(|e| e.to_string())?;
     }

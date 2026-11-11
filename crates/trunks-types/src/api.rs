@@ -10,24 +10,40 @@ use crate::{CanonicalName, ResourceUri, Role, ServerMode, ServerName, SessionMod
 
 /// `GET /health`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Health {
     pub status: String,
 }
 
+/// `GET /auth/config`: what a sign-in page needs to know before anyone is signed in.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct AuthConfig {
+    /// `None` until the server is initialized.
+    pub mode: Option<ServerMode>,
+    /// Whether any login is needed (enterprise mode).
+    pub login_required: bool,
+    /// Whether `GET /auth/login` is available.
+    pub oidc: bool,
+}
+
 /// `GET /metadata`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ServerMetadata {
     pub version: String,
 }
 
 /// `POST /init` body.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct InitRequest {
     pub mode: ServerMode,
 }
 
 /// `POST /init` response. `admin_access_token` is returned exactly once, in enterprise mode.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct InitResponse {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -37,6 +53,7 @@ pub struct InitResponse {
 /// A registered upstream server as seen by any authenticated user.
 /// Credentials never appear here: `env_keys` and `header_keys` list names only.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct McpServer {
     pub name: ServerName,
     pub transport: Transport,
@@ -63,6 +80,7 @@ pub struct McpServer {
 
 /// A tool exposed by the gateway. `name` is canonical (`<server>__<tool>`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Tool {
     pub name: CanonicalName,
     pub server: ServerName,
@@ -77,6 +95,7 @@ pub struct Tool {
 
 /// A prompt exposed by the gateway. `name` is canonical (`<server>__<prompt>`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Prompt {
     pub name: CanonicalName,
     pub server: ServerName,
@@ -89,6 +108,7 @@ pub struct Prompt {
 
 /// A resource exposed by the gateway under a `trunks://res/...` URI.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Resource {
     pub uri: ResourceUri,
     pub server: ServerName,
@@ -107,6 +127,7 @@ pub struct Resource {
 /// `POST /api/v0/servers` body, and the items of `GET /api/v0/server_configs` (admin; **with
 /// secrets** — it is the export format).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct RegisterServerInput {
     pub name: String,
     pub transport: Transport,
@@ -150,6 +171,7 @@ impl RegisterServerInput {
 /// `POST /api/v0/servers` response: `201` with `server`, or `202` with `authorization_required`
 /// when the upstream needs an OAuth flow first.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct RegisterServerResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<McpServer>,
@@ -158,6 +180,7 @@ pub struct RegisterServerResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct AuthorizationRequired {
     pub session_id: String,
     pub authorization_url: String,
@@ -166,6 +189,7 @@ pub struct AuthorizationRequired {
 
 /// `POST /api/v0/upstream_oauth/sessions/{id}/complete` body: the authorization response.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct CompleteOAuthRequest {
     pub code: String,
     pub state: String,
@@ -173,6 +197,7 @@ pub struct CompleteOAuthRequest {
 
 /// Query string of `POST /api/v0/servers`. `force` is a strict boolean (`true`/`false`, `1`/`0`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ForceQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force: Option<String>,
@@ -181,6 +206,7 @@ pub struct ForceQuery {
 /// Query string of `POST /api/v0/{tools,prompts,resources}/{enable,disable}`: a server name,
 /// a canonical name (tools/prompts) or a `trunks://` URI (resources).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct EntityQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entity: Option<String>,
@@ -189,6 +215,7 @@ pub struct EntityQuery {
 /// Response of every enable/disable endpoint. Lists are the entities whose **effective** state
 /// changed; for a single entity its name is always listed, even when it was already in that state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct EnableDisableResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -203,6 +230,7 @@ pub struct EnableDisableResult {
 /// A tool group: the body of `POST /api/v0/tool-groups`, of `PUT /tool-groups/{name}`, the items
 /// of `GET /tool-groups`, and the `-c` file format of the CLI.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ToolGroup {
     pub name: String,
     #[serde(default)]
@@ -220,6 +248,7 @@ pub struct ToolGroup {
 
 /// `POST /tool-groups` and `GET /tool-groups/{name}`: the group plus its MCP endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ToolGroupWithEndpoints {
     #[serde(flatten)]
     pub group: ToolGroup,
@@ -229,6 +258,7 @@ pub struct ToolGroupWithEndpoints {
 
 /// `PUT /tool-groups/{name}` response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct UpdateToolGroupResponse {
     pub name: String,
     pub old: ToolGroup,
@@ -237,6 +267,7 @@ pub struct UpdateToolGroupResponse {
 
 /// `GET /api/v0/users/whoami` and the items of `GET /api/v0/users`. Never carries a token.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct User {
     pub username: String,
     pub role: Role,
@@ -244,6 +275,7 @@ pub struct User {
 
 /// `POST /api/v0/users` body (enterprise, admin). Role is always `user`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct CreateUserRequest {
     pub username: String,
     /// Custom token (≥ 8 chars, no whitespace); generated when omitted.
@@ -253,6 +285,7 @@ pub struct CreateUserRequest {
 
 /// `PUT /api/v0/users/{username}` body: rotates the token (custom or generated).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct UpdateUserRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
@@ -261,6 +294,7 @@ pub struct UpdateUserRequest {
 /// Response of `POST /users` and `PUT /users/{username}`: the only places a user token is
 /// ever serialized.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct UserWithToken {
     pub username: String,
     pub role: Role,
@@ -269,6 +303,7 @@ pub struct UserWithToken {
 
 /// Who owns an MCP client (D14): a user or a team, by name.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Owner {
     /// `user` or `team`
     pub kind: String,
@@ -277,6 +312,7 @@ pub struct Owner {
 
 /// An MCP client as listed by `GET /api/v0/clients`. Never carries the token.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct McpClient {
     pub name: String,
     #[serde(default)]
@@ -291,6 +327,7 @@ pub struct McpClient {
 
 /// A team (D14).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Team {
     pub name: String,
     #[serde(default)]
@@ -298,6 +335,7 @@ pub struct Team {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct TeamMember {
     pub username: String,
     /// `maintainer` or `member`
@@ -306,6 +344,7 @@ pub struct TeamMember {
 
 /// `GET /api/v0/teams/{name}`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct TeamDetail {
     #[serde(flatten)]
     pub team: Team,
@@ -314,6 +353,7 @@ pub struct TeamDetail {
 
 /// `POST /api/v0/teams/{name}/members`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct AddTeamMemberRequest {
     pub username: String,
     /// `maintainer` or `member` (default)
@@ -324,6 +364,7 @@ pub struct AddTeamMemberRequest {
 /// A grant: subject → target → `use` (D14). Body of `POST/DELETE /api/v0/grants`, items of
 /// `GET /api/v0/grants` and of `GET /{servers,tool-groups}/{n}/access`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct GrantSpec {
     /// `user` or `team`
     pub subject_kind: String,
@@ -336,6 +377,7 @@ pub struct GrantSpec {
 
 /// Query of `GET /api/v0/grants`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct GrantsQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_kind: Option<String>,
@@ -345,6 +387,7 @@ pub struct GrantsQuery {
 
 /// What the caller may use (`GET /api/v0/users/whoami`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct AccessView {
     pub all: bool,
     #[serde(default)]
@@ -354,6 +397,7 @@ pub struct AccessView {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct TeamMembership {
     pub name: String,
     pub role: String,
@@ -361,6 +405,7 @@ pub struct TeamMembership {
 
 /// `GET /api/v0/users/whoami`: the user plus teams and effective access.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct WhoAmI {
     pub username: String,
     pub role: Role,
@@ -372,6 +417,7 @@ pub struct WhoAmI {
 /// `POST /api/v0/clients` body (enterprise). Admins may set any `owner` or none; a regular
 /// user's client is owned by that user unless `owner` names a team they maintain.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct CreateMcpClientRequest {
     pub name: String,
     #[serde(default)]
@@ -388,6 +434,7 @@ pub struct CreateMcpClientRequest {
 /// `PUT /api/v0/clients/{name}` body. Every field is optional; `rotate_token` generates a
 /// new token (`access_token` sets a custom one and wins).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct UpdateMcpClientRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -402,6 +449,7 @@ pub struct UpdateMcpClientRequest {
 /// Response of `POST /clients` and `PUT /clients/{name}`. `access_token` is present on
 /// creation and whenever the token changed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct McpClientWithToken {
     pub name: String,
     #[serde(default)]
@@ -416,6 +464,7 @@ pub struct McpClientWithToken {
 
 /// Query string of `GET /api/v0/tools|prompts|resources`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ByServerQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
@@ -423,6 +472,7 @@ pub struct ByServerQuery {
 
 /// Query string of `GET /api/v0/tool|prompt`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ByNameQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -430,6 +480,7 @@ pub struct ByNameQuery {
 
 /// `POST /api/v0/tools/invoke` — `name` plus the tool's arguments as the rest of the object.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ToolInvokeRequest {
     pub name: CanonicalName,
     #[serde(flatten, default)]
@@ -438,6 +489,7 @@ pub struct ToolInvokeRequest {
 
 /// `POST /api/v0/tools/invoke` response — the MCP `CallToolResult` as JSON.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ToolInvokeResult {
     #[serde(default, rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
@@ -450,6 +502,7 @@ pub struct ToolInvokeResult {
 
 /// `POST /api/v0/prompts/render`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct PromptRenderRequest {
     pub name: CanonicalName,
     #[serde(default)]
@@ -457,6 +510,7 @@ pub struct PromptRenderRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct PromptRenderResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -465,11 +519,13 @@ pub struct PromptRenderResult {
 
 /// `POST /api/v0/resources/get` and `/resources/read`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ResourceRequest {
     pub uri: ResourceUri,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ResourceReadResult {
     pub contents: Vec<Value>,
 }

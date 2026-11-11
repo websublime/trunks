@@ -17,3 +17,5 @@ install-path = "CARGO_HOME"
 hosting = "github"
 # Whether to install an updater program
 install-updater = false
+# Steps run before each build: the web console is built and embedded into the binary.
+github-build-setup = "build-setup.yml"

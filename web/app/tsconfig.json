@@ -1,0 +1,10 @@
+{
+  "extends": "astro/tsconfigs/strictest",
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "exactOptionalPropertyTypes": false
+  },
+  "include": [".astro/types.d.ts", "src", "tests", "scripts"],
+  "exclude": ["dist"]
+}

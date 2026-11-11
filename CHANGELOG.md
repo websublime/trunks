@@ -44,7 +44,7 @@ First public version. Everything below is new.
   deleting the owner deletes its clients.
 - Single sign-on with OpenID Connect (authorization code + PKCE). Users are created on
   first login; the administrator role and team memberships can follow a groups claim.
-- Browser sessions for the web application: `HttpOnly` cookie, same-origin check on every
+- Browser sessions for the web console: `HttpOnly` cookie, same-origin check on every
   change, never accepted on the MCP endpoints.
 - What a caller may not use is neither listed nor distinguishable from what does not exist,
   in the REST API, the MCP endpoints and the dashboard views alike.
@@ -78,8 +78,14 @@ First public version. Everything below is new.
   enterprise mode, connecting clients, operations, and CLI, configuration and HTTP API
   references.
 
+### Web console
+
+- A console embedded in the binary and served at `/`: sign-in with an access token (and
+  single sign-on when configured) and an overview of what the gateway holds, limited to what
+  the viewer was granted. Light and dark, usable at phone width. The catalogue and the
+  management screens are not in this version.
+
 ### Not in this version
 
-- The web application (`line://ui`).
 - The legacy HTTP+SSE transport, for clients and for upstreams: Streamable HTTP only.
 - Access tokens are stored as they are, not hashed; protect the database and its backups.

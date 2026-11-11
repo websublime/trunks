@@ -138,20 +138,35 @@ API responde.
 - Cache: `/_astro/*` tem nomes com hash → `Cache-Control: public, max-age=31536000, immutable`;
   HTML → `no-cache`, com `ETag`.
 - Cabeçalhos de segurança nas respostas estáticas: `X-Content-Type-Options: nosniff`,
-  `Referrer-Policy: same-origin`, `Content-Security-Policy: frame-ancestors 'none'`. O resto
-  da CSP (scripts e estilos por hash) é emitido pelo Astro (`security.csp`), numa `<meta>`.
-- **Os estáticos são públicos** depois de o servidor estar inicializado: são a casca da app,
-  igual para toda a gente e sem dados, e a página de login tem de abrir sem sessão. Tudo o
-  que é dado continua atrás da autenticação da API.
+  `Referrer-Policy: same-origin` e uma `Content-Security-Policy` estrita, enviada pelo
+  servidor: `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;
+  font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';
+  frame-ancestors 'none'`. Nada inline: o build do Astro não embute scripts nem estilos nas
+  páginas (`inlineStylesheets: 'never'`, `assetsInlineLimit: 0`) e
+  `web/app/scripts/check-dist.mjs` falha o build se aparecer um `<script>` sem `src`, um
+  `<style>`, um atributo `style` ou um handler inline. A política vai no cabeçalho, e não na
+  `<meta>` do Astro, porque só assim cobre `frame-ancestors` e não depende de hashes.
+- **Os estáticos são públicos, mesmo antes da inicialização**: são a casca da app, igual para
+  toda a gente e sem dados; a página de login tem de abrir sem sessão e a página "server not
+  initialized" tem de abrir antes de haver seja o que for. Tudo o que é dado continua atrás
+  da API (que responde 403 enquanto o servidor não está inicializado).
+- Os prefixos do servidor (secção 5) nunca recebem uma página: um caminho desconhecido lá
+  responde 404 sem corpo. A app só se lê com `GET` e `HEAD`.
 - Sem `dist/` (build do servidor sem Node), `GET /` responde 404, como hoje.
-- A compressão aplica-se só aos estáticos; nunca aos endpoints MCP, que são streams.
+- Sem compressão por agora: o build inteiro tem cerca de 230 KB. Se vier a existir, aplica-se só aos estáticos, nunca aos endpoints MCP, que são streams.
 
 ## 9. Construir e desenvolver
 
-- `cargo xtask build-dashboard`: `npm ci` + `astro check` + `astro build` em `web/app`, com a
-  saída copiada para `crates/trunks-dashboard/dist`. Precisa de Node 22 LTS.
-- O release (cargo-dist) e as imagens de contentor constroem a app antes do `cargo build`;
-  um binário de release sem a app embebida é um erro do pipeline, não uma variante.
+- `cargo xtask build-dashboard`: `npm ci`, `astro check`, `vitest`, `astro build` e a
+  verificação da CSP em `web/app`, com a saída copiada para `crates/trunks-dashboard/dist`.
+  Precisa de Node 22 LTS.
+- `cargo xtask gen-types` escreve `web/app/src/api/types.gen.ts` a partir dos tipos Rust
+  (`ts-rs`, atrás da feature `ts` de `trunks-types` e `trunks-core`); um teste do `xtask`
+  falha quando o ficheiro deixa de coincidir.
+- O release (cargo-dist, `.github/workflows/build-setup.yml`) e as imagens de contentor
+  (estágio `web` do `Dockerfile`) constroem a app antes do `cargo build`; um binário de
+  release sem a app embebida é um erro do pipeline, não uma variante. Um `cargo build` local
+  sem `build-dashboard` continua a compilar e serve 404 em `/`.
 - Desenvolvimento: `astro dev` (porta 4321) com proxy do Vite para um `trunks start` local nos
   prefixos da secção 5. Mesma origem para o browser, logo o cookie e a verificação de
   `Origin` funcionam como em produção.
@@ -231,3 +246,46 @@ o CLI cobre o resto enquanto as partes seguintes não chegam.
 | W7 | Sem `<ClientRouter />` na primeira versão | view transitions desde o início | menos ciclo de vida para gerir; pode entrar depois sem mudar a arquitectura |
 | W8 | Entrega em quatro partes, as duas primeiras só de leitura | esperar pela `line://ui` completa | a consola de leitura é útil cedo e fixa a arquitectura |
 | W9 | Peça em falta na `line://ui` → elemento HTML nativo com tokens, dentro de um `trunks-*` | outra biblioteca de componentes; esperar | não entra um segundo design system; a troca posterior fica contida num elemento |
+
+## 14. Referência de design
+
+O design da consola foi feito no Claude Design a partir desta definição (canvas "Trunks
+Design", privado do autor): 35 artboards com os ecrãs da secção 5, as variantes em tema claro
+e a 390 px, uma folha com os componentes novos e os seus estados, uma de padrões (estados das
+regiões de dados, truncagem, copiar, polling) e uma de tokens. É a referência visual e de
+comportamento da implementação.
+
+O que vem do design para o repositório:
+
+- `web/app/src/styles/console.css`: a folha de estilos do design, que só usa tokens
+  `--line-*` (accent `teal`, gray `slate`). Os valores dos tokens vêm dos pacotes
+  `@websublime/line-tokens`, `line-colors` e `line-themes`, não do design.
+- Os ícones (`web/app/src/lib/icons.ts`) e a marca.
+- Os textos e os estados de cada ecrã.
+
+Onde a implementação se afasta do design, porque o design assumia outra coisa:
+
+| No design | Na implementação | Porquê |
+|---|---|---|
+| navegação filtrada no servidor | filtrada no browser, a partir de `/auth/config` e do `whoami` | páginas estáticas (W1) |
+| tabs como caminhos (`/servers/github/tools`) | query string (`?name=github&tab=tools`) | W4 |
+| token errado recarrega a página | erro no próprio formulário, campo limpo e com foco | páginas estáticas |
+| 403 e "not initialized" servidos pelo servidor | estados mostrados pela app a partir da resposta da API; página `/not-initialized/` | páginas estáticas |
+| role `member` | `user` | é o nome na API |
+| endpoint de grupo `/groups/<nome>/mcp` | o que a API devolve (`/v0/groups/<nome>/mcp`) | contrato |
+| estilos inline | classes | CSP sem `unsafe-inline` |
+| tema escuro por omissão | segue a preferência do sistema (`color-scheme: light dark`) | os dois temas estão desenhados e passam AA |
+| criar user com escolha de role | sem o campo: a API cria sempre `user` | administradores só nascem do `init-server` e do SSO |
+| registar com OAuth: "registado, autoriza depois" | o servidor só fica registado quando a autorização termina (10 min); sem "Do it later" | é o que o registry faz |
+| conta: "via team platform" | o `whoami` passa a devolver os grants do user e das suas teams (6c-4) | o design precisa da origem de cada acesso |
+
+O design mediu cinco pontos em que os tokens da `line://ui` não cumprem AA e contorna-os na
+raiz da consola: `--line-accent-contrast` (branco sobre teal-9, 3,07:1), a cor do anel de foco
+(2,30:1 no tema claro), a borda dos controlos (gray-7, 1,53:1), o botão danger sólido (3,91:1)
+e o texto dos badges (passo 11 sobre passo 3). São candidatos a corrigir na biblioteca; os
+dois primeiros estão em `console.css` como overrides.
+
+Estado da `line://ui` no npm (2026-11-11): `@websublime/line-components` 0.2.4 publica
+`line-button`, `line-stack` e `line-separator`. O Storybook mostra também alert, badge, chip,
+icon, icon-button e button-group, ainda não publicados; até lá seguem a regra W9.
+
