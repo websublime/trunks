@@ -73,6 +73,9 @@ trunks invoke github__list_issues --group triage --input '{"repo":"websublime/tr
 
 The web console shows the same under **Tool groups**: each group's endpoint, its effective
 tools and whether each one comes from an included server or was included by name.
+Administrators can also create, change and delete groups there: per server, tick **Whole
+server** (and untick the tools to leave out) or tick tools one by one; the form shows how many
+effective tools the selection has before you save.
 
 ## Change or remove a group
 

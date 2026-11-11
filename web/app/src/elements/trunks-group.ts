@@ -5,8 +5,11 @@ import { html, nothing, type TemplateResult } from 'lit';
 
 import { ApiError, get } from '../api/client';
 import type { GroupSummary, ServerSummary } from '../api/types.gen';
+import { flash } from '../lib/flash';
+import { deleteGroup } from '../lib/manage';
 import { param } from '../lib/text';
 import { DataView, type Heading } from './data-view';
+import { confirm } from './dialog';
 import { icon } from './icon';
 import { badge, nameCell, none, state } from './parts';
 
@@ -37,7 +40,34 @@ class TrunksGroup extends DataView<Group> {
       mono: true,
       crumbs: [['Tool groups', '/groups/']],
       ...(data ? { sub: data.group.description } : {}),
+      ...(data && this.session?.admin ? { actions: this.#actions(data.group) } : {}),
     };
+  }
+
+  #actions(g: GroupSummary): TemplateResult {
+    return html`
+      <a class="btn" href="/groups/edit/?name=${encodeURIComponent(g.name)}">${icon('edit')}Edit</a>
+      <button type="button" class="btn danger" @click=${() => void this.#delete(g)}>
+        ${icon('trash')}Delete
+      </button>
+    `;
+  }
+
+  async #delete(g: GroupSummary): Promise<void> {
+    const deleted = await confirm({
+      title: `Delete ${g.name}?`,
+      body: html`Its endpoint stops answering at once, so clients pointed at
+        <span class="mono">${g.streamable_http_endpoint}</span> lose their tools. The servers and tools it
+        names are not affected.`,
+      action: 'Delete group',
+      working: 'Deleting…',
+      failed: 'Couldn’t delete',
+      run: () => deleteGroup(g.name),
+    });
+    if (deleted) {
+      flash(`Tool group ${g.name} deleted.`);
+      location.assign('/groups/');
+    }
   }
 
   protected content({ group: g, servers }: Group): TemplateResult {

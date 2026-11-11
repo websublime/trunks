@@ -38,8 +38,8 @@ Trunks HTTP server listening on 127.0.0.1:8080
 
 In development mode Trunks listens on this machine only. The data goes to `trunks.db`
 (SQLite) in the current directory. The web console is at <http://127.0.0.1:8080/>: it shows the
-servers, tools, prompts, resources and tool groups the gateway holds. For now it is read-only;
-changes are made with the CLI, as below.
+servers, tools, prompts, resources and tool groups the gateway holds, and servers and tool
+groups can be managed there too. This guide uses the CLI.
 
 ## 3. Register an MCP server
 

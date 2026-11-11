@@ -85,8 +85,12 @@ First public version. Everything below is new.
   the viewer was granted. Light and dark, usable at phone width.
 - Read-only catalogue: servers and how each is reached (never a credential), tools with their
   parameters, prompts with their arguments, resources, tool groups with their endpoint and
-  effective tools, and, for administrators, diagnostics. Changes are still made with the CLI
-  or the API; the management screens are not in this version.
+  effective tools, and, for administrators, diagnostics.
+- Managing the gateway (administrators; everyone in development mode): register a server as a
+  local process or a remote one, including the OAuth authorization of a remote server in the
+  browser; enable and disable servers, tools, prompts and resources; delete a server; create,
+  change and delete tool groups. Users, teams, MCP clients and grants are still managed with
+  the CLI or the API.
 
 ### Not in this version
 

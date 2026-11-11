@@ -54,6 +54,24 @@ export function errorText(message: string) {
 
 export const none = (text = '—') => html`<span class="lo">${text}</span>`;
 
+/**
+ * An on/off switch that acts at once. `label` names what it switches ("Enabled: github");
+ * while `busy` it cannot be pressed again.
+ */
+export function toggle(on: boolean, label: string, change: (next: boolean) => void, busy = false) {
+  return html`<button
+    type="button"
+    class="sw"
+    role="switch"
+    aria-checked=${on ? 'true' : 'false'}
+    aria-label=${label}
+    ?disabled=${busy}
+    @click=${() => change(!on)}
+  >
+    <span class="tr"><span class="th"></span></span><span class="lbl">${on ? 'On' : 'Off'}</span>
+  </button>`;
+}
+
 /** A centred message inside a panel: nothing here, nothing found, no permission. */
 export function state(
   glyph: IconName,

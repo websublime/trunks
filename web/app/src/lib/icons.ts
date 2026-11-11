@@ -33,6 +33,7 @@ export const ICONS = {
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   warning: 'M12 4 2.5 20h19zM12 10v4M12 17h.01',
   rotate: 'M20 12a8 8 0 1 1-2.3-5.7L20 8M20 3v5h-5',
+  edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   check: 'M5 12.5 10 17 19 7',
   search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4',

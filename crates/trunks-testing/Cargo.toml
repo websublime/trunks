@@ -12,6 +12,10 @@ publish.workspace = true
 name = "fake-upstream"
 path = "src/bin/fake_upstream.rs"
 
+[[bin]]
+name = "fake-http-upstream"
+path = "src/bin/fake_http_upstream.rs"
+
 [dependencies]
 rmcp = { workspace = true, features = ["transport-io"] }
 tokio = { workspace = true }

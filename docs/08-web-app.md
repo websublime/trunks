@@ -84,7 +84,7 @@ gerados pelo Astro ficam em `/_astro/`.
 | `/servers/detail/?name=` | um servidor: tools, prompts, resources, estado | todos |
 | `/servers/new/` | registar, incluindo OAuth upstream | admin |
 | `/tools/`, `/prompts/`, `/resources/` | catálogo, com filtro por servidor | todos |
-| `/groups/`, `/groups/detail/?name=`, `/groups/new/` | tool groups | todos / admin para alterar |
+| `/groups/`, `/groups/detail/?name=`, `/groups/new/`, `/groups/edit/?name=` | tool groups | todos / admin para alterar |
 | `/clients/` | MCP clients: os meus e os das minhas teams; todos para admin | enterprise |
 | `/users/`, `/teams/`, `/teams/detail/?name=`, `/access/` | identidades e grants | enterprise, admin (teams: também maintainers) |
 | `/diagnostics/` | diagnóstico da instalação | admin |
@@ -278,6 +278,9 @@ Onde a implementação se afasta do design, porque o design assumia outra coisa:
 | criar user com escolha de role | sem o campo: a API cria sempre `user` | administradores só nascem do `init-server` e do SSO |
 | registar com OAuth: "registado, autoriza depois" | o servidor só fica registado quando a autorização termina (10 min); sem "Do it later" | é o que o registry faz |
 | conta: "via team platform" | o `whoami` passa a devolver os grants do user e das suas teams (6c-4) | o design precisa da origem de cada acesso |
+| sem ecrãs para apagar ou desactivar um servidor, nem para criar, alterar ou apagar um tool group | desenhados na implementação com o vocabulário do design: interruptor e botão "Delete" no cabeçalho do detalhe, confirmação no `alertdialog` dos componentes, formulário de grupo com uma caixa por servidor | a definição (§12, 6c-3) pede-os e o design não os cobriu |
+| session mode num botão com listbox | `<select>` nativo | W9: a `line://ui` ainda não tem select |
+| registo OAuth sem cliente próprio | secção recolhível "Authorization with your own OAuth client" com o redirect URI a copiar | providers sem registo dinâmico de clientes |
 
 O design mediu cinco pontos em que os tokens da `line://ui` não cumprem AA e contorna-os na
 raiz da consola: `--line-accent-contrast` (branco sobre teal-9, 3,07:1), a cor do anel de foco

@@ -6,7 +6,10 @@ import { get } from '../api/client';
 import type { GroupSummary } from '../api/types.gen';
 import { count } from '../lib/text';
 import { DataView, type Heading } from './data-view';
+import { icon } from './icon';
 import { badge, nameCell, state } from './parts';
+
+const create = () => html`<a class="btn primary" href="/groups/new/">${icon('plus')}New group</a>`;
 
 class TrunksGroups extends DataView<GroupSummary[]> {
   protected readonly subject = 'tool groups';
@@ -22,6 +25,7 @@ class TrunksGroups extends DataView<GroupSummary[]> {
         groups === undefined
           ? 'Named selections of tools, each with its own endpoint.'
           : `${count(groups.length, 'tool group')}. Each has its own MCP endpoint.`,
+      ...(this.session?.admin ? { actions: create() } : {}),
     };
   }
 
@@ -32,9 +36,9 @@ class TrunksGroups extends DataView<GroupSummary[]> {
           'groups',
           'No tool groups yet',
           this.session?.admin
-            ? html`Create one with <code class="mono">trunks create group</code> to give a client a
-                curated subset of tools.`
+            ? 'Create one to give a client a curated subset of tools.'
             : 'You have not been granted any tool group.',
+          this.session?.admin ? create() : undefined,
         )}
       </section>`;
     }

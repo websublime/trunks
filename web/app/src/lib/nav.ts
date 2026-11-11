@@ -37,7 +37,13 @@ export const NAVIGATION: Section[] = [
 ];
 
 /** Pages reached from another page rather than from the navigation. */
-const DETAIL_PAGES = ['/servers/detail/', '/groups/detail/'];
+const DETAIL_PAGES = [
+  '/servers/detail/',
+  '/servers/new/',
+  '/groups/detail/',
+  '/groups/new/',
+  '/groups/edit/',
+];
 
 const HREFS = new Set([
   ...NAVIGATION.flatMap((section) => section.pages.map((page) => page.href)),

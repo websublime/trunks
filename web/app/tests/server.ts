@@ -25,6 +25,26 @@ async function freePort(): Promise<number> {
   });
 }
 
+/**
+ * A fake MCP server over Streamable HTTP, running until `stop`. `oauth`: it refuses everyone
+ * until authorized through a fake provider that approves at once.
+ */
+export async function startUpstream(kind: 'open' | 'oauth'): Promise<{ url: string; stop: () => void }> {
+  const bin = process.env['TRUNKS_FAKE_HTTP_UPSTREAM'] ?? join(target, `fake-http-upstream${exe}`);
+  const child = spawn(bin, kind === 'oauth' ? ['--oauth'] : [], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const url = await new Promise<string>((done, fail) => {
+    let seen = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      seen += chunk.toString();
+      const end = seen.indexOf('\n');
+      if (end >= 0) done(seen.slice(0, end).trim());
+    });
+    child.once('error', fail);
+    child.once('exit', () => fail(new Error(`${bin} exited before printing its address`)));
+  });
+  return { url, stop: () => void child.kill() };
+}
+
 export class Server {
   private constructor(
     readonly url: string,
