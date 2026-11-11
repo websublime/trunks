@@ -14,10 +14,12 @@ delivers the gateway, registry, CLI, teams with per-resource grants, single sign
 (OIDC) for people and a `line://ui` web app; the roadmap adds OIDC for MCP clients,
 organisations and declarative configuration. See `docs/`.
 
-> Status: **pre-alpha**. The gateway, registry, CLI, access model and single sign-on are
-> implemented and tested, and so is the web console: it shows the gateway and manages servers,
-> tool groups, users, teams, MCP clients and grants. The first tagged release is still to come
-> (`docs/03-plano.md`).
+> Status: **release candidate** (`v0.1.0-rc.2`). The gateway, registry, CLI, access model,
+> single sign-on and web console are implemented and tested; what is left before a final
+> release is a pass with real MCP client applications. Until then the install links below,
+> which follow final releases, do not resolve: use
+> `https://github.com/websublime/trunks/releases/download/v0.1.0-rc.2/trunks-installer.sh`
+> (or `.ps1`), or the images `ghcr.io/websublime/trunks:v0.1.0-rc.2` and `:v0.1.0-rc.2-stdio`.
 
 ## Quickstart
 
