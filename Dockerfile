@@ -9,6 +9,15 @@
 # - `stdio`: adds Node.js (`npx`) and uv (`uvx`, with Python) so that stdio upstreams
 #   distributed as npm or PyPI packages can be started inside the container.
 
+# ── web: the console, a static Astro build ────────────────────────────────────────────
+FROM node:22-bookworm-slim AS web
+WORKDIR /web/app
+ENV ASTRO_TELEMETRY_DISABLED=1
+COPY web/app/package.json web/app/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/app ./
+RUN npm run build
+
 # ── build ─────────────────────────────────────────────────────────────────────────────
 FROM rust:1.97-bookworm AS build
 WORKDIR /src
@@ -20,6 +29,8 @@ RUN apt-get update \
 COPY rust-toolchain.toml ./
 RUN rustup toolchain install
 COPY . .
+# The console is embedded into the binary at compile time.
+COPY --from=web /web/app/dist crates/trunks-dashboard/dist
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
     cargo build --release --locked --package trunks --bin trunks \

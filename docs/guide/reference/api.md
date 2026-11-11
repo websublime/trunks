@@ -42,6 +42,16 @@ once; this is what `trunks init-server` calls. The token is not shown again. A s
 already initialized answers 400, and so does a `mode` other than the one the server was
 started in. Development servers initialize themselves at start-up.
 
+## Web console
+
+Any `GET` or `HEAD` outside the paths in this document is a page or a file of the web
+console, which is embedded in the binary: `/` is the overview, `/login/` the sign-in. The
+files are static and the same for everyone, so they need no authentication; everything they
+display is read from the API above with the viewer's own session. They are sent with a strict
+`Content-Security-Policy` (no inline script or style, no framing). An unknown page answers 404
+with the console's "page not found"; an unknown path under `/api`, `/auth`, `/mcp` or `/v0`
+answers 404 with no body. A binary built without the console answers 404 for every page.
+
 ## MCP endpoints
 
 | Path | Exposes |
@@ -202,8 +212,9 @@ The subject must exist (404 otherwise). The target is a name and does not have t
 
 ## Browser sign-in
 
-These endpoints serve the web application (not part of this version yet). `GET /auth/config`
-always answers; the others exist in enterprise mode only and answer 403 in development mode.
+These endpoints serve the web console. `GET /auth/config` always answers, also before the
+server is initialized (`mode` is then `null`); the others exist in enterprise mode only and
+answer 403 in development mode.
 
 | Method and path | Purpose |
 |---|---|
@@ -222,7 +233,7 @@ public URL (or to the request's `Host`); otherwise 403.
 
 `GET /api/dashboard/{overview, servers, servers/{name}, tools, prompts, resources,
 tool-groups, tool-groups/{name}, diagnostics, oauth/session/{id}}` returns aggregated,
-read-only views for the web application. No response contains a credential: servers are
+read-only views for the web console. No response contains a credential: servers are
 described by their URL or command and by the *names* of their headers and environment
 variables.
 

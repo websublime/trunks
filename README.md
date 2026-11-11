@@ -15,8 +15,8 @@ delivers the gateway, registry, CLI, teams with per-resource grants, single sign
 organisations and declarative configuration. See `docs/`.
 
 > Status: **pre-alpha**. The gateway, registry, CLI, access model and single sign-on are
-> implemented and tested; the web app and the first tagged release are still to come
-> (`docs/03-plano.md`).
+> implemented and tested. The web console has its first part (sign-in and overview); the rest
+> of it and the first tagged release are still to come (`docs/03-plano.md`).
 
 ## Quickstart
 
@@ -78,7 +78,7 @@ crates/
   trunks-client/     HTTP SDK for the management API
   trunks-dashboard/  embedded web app assets
   trunks/            the `trunks` binary: server (`start`) + management CLI
-web/app/             web application (line://ui) — see web/README.md
+web/app/             web console (Astro + line://ui) — see web/README.md
 xtask/               repo automation (`cargo xtask build-dashboard`, `cargo xtask ci`)
 docs/                design documents; docs/guide is the user guide
 tests/               conformance fixtures and black-box tests
@@ -94,7 +94,7 @@ cargo run -- start        # http://127.0.0.1:8080/health
 cargo run -- version
 ```
 
-Requirements: Rust stable ≥ 1.94 (edition 2024). Node 20 is only needed to build the web app.
+Requirements: Rust stable ≥ 1.94 (edition 2024). Node 22 is only needed to build the web console (`cargo xtask build-dashboard`); without it the server builds and runs, with no pages.
 
 ## Releases
 

@@ -66,4 +66,33 @@ jobs:
       # Conformance matrix {development, enterprise} × {sqlite, postgres} against the binary.
       - run: cargo test -p trunks --test conformance
 
-  # The web app job (`cargo xtask build-dashboard`) is added when web/app lands (Fase 6).
+  # The web console: type check, unit tests and build (`cargo xtask build-dashboard`), then
+  # browser smoke tests against the real binary with the build embedded.
+  web:
+    runs-on: ubuntu-latest
+    env:
+      ASTRO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }} # keep in sync with rust-toolchain.toml
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/app/package-lock.json
+      - run: cargo xtask build-dashboard
+      - run: cargo build --package trunks --package trunks-testing
+      - name: Browser smoke tests
+        working-directory: web/app
+        run: |
+          npx playwright install --with-deps chromium
+          npm run smoke
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: web-smoke-results
+          path: web/app/test-results
+          retention-days: 7

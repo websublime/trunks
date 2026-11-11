@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 /// `Sse` is kept only so that legacy rows can be deserialized;
 /// Trunks does not connect to SSE upstreams (decision D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Transport {
     Stdio,
@@ -40,6 +41,7 @@ impl fmt::Display for Transport {
 
 /// How the gateway manages the connection to an upstream server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SessionMode {
     #[default]
@@ -65,6 +67,7 @@ impl fmt::Display for SessionMode {
 
 /// Role of a human user (enterprise mode only).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     Admin,
@@ -89,6 +92,7 @@ impl fmt::Display for Role {
 
 /// Operating mode of the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum ServerMode {
     #[default]

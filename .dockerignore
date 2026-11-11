@@ -7,6 +7,11 @@ spikes
 docs
 tests
 web/app/node_modules
+web/app/dist
+web/app/.astro
+web/app/test-results
+web/app/tests
+crates/trunks-dashboard/dist
 **/*.db
 **/*.db-wal
 **/*.db-shm

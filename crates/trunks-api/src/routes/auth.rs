@@ -30,16 +30,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/logout", post(logout))
 }
 
-/// `GET /auth/config`
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AuthConfig {
-    /// `None` until the server is initialized.
-    pub mode: Option<ServerMode>,
-    /// Whether any login is needed (enterprise mode).
-    pub login_required: bool,
-    /// Whether `GET /auth/login` is available.
-    pub oidc: bool,
-}
+pub use trunks_types::api::AuthConfig;
 
 async fn config(State(st): State<AppState>) -> Json<AuthConfig> {
     let mode = st.mode.current();

@@ -24,6 +24,7 @@ use crate::sessions::UpstreamHealth;
 
 /// Facts about the running process that the catalog does not know.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct RuntimeInfo {
     pub mode: ServerMode,
     pub version: String,
@@ -41,6 +42,7 @@ pub struct RuntimeInfo {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Counts {
     pub servers: usize,
     pub servers_enabled: usize,
@@ -53,12 +55,14 @@ pub struct Counts {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct SessionStats {
     pub stateful_active: u64,
 }
 
 /// `GET /api/dashboard/overview`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Overview {
     pub mode: ServerMode,
     pub version: String,
@@ -73,6 +77,7 @@ pub struct Overview {
 
 /// Connection settings without any secret.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ConfigSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -88,6 +93,7 @@ pub struct ConfigSummary {
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum OAuthStatus {
     #[default]
@@ -97,6 +103,7 @@ pub enum OAuthStatus {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct OAuthSummary {
     pub status: OAuthStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,6 +113,7 @@ pub struct OAuthSummary {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct EntityCounts {
     pub tools: usize,
     pub tools_enabled: usize,
@@ -115,6 +123,7 @@ pub struct EntityCounts {
 
 /// Items of `GET /api/dashboard/servers`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ServerSummary {
     pub name: ServerName,
     pub transport: Transport,
@@ -135,6 +144,7 @@ pub struct ServerSummary {
 
 /// `GET /api/dashboard/servers/{name}`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ServerDetail {
     #[serde(flatten)]
     pub summary: ServerSummary,
@@ -145,6 +155,7 @@ pub struct ServerDetail {
 
 /// Items of `GET /api/dashboard/tool-groups`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct GroupSummary {
     #[serde(flatten)]
     pub group: ToolGroup,
@@ -155,6 +166,7 @@ pub struct GroupSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct UnreachableServer {
     pub name: ServerName,
     pub error: String,
@@ -163,6 +175,7 @@ pub struct UnreachableServer {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct PendingOAuth {
     pub session_id: String,
     pub server_name: ServerName,
@@ -171,6 +184,7 @@ pub struct PendingOAuth {
 
 /// `GET /api/dashboard/diagnostics`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Diagnostics {
     pub database: DatabaseInfo,
     pub bind: BindInfo,
@@ -183,6 +197,7 @@ pub struct Diagnostics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct DatabaseInfo {
     pub backend: String,
     pub url_redacted: String,
@@ -191,6 +206,7 @@ pub struct DatabaseInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct BindInfo {
     pub host: String,
     pub port: u16,
@@ -198,6 +214,7 @@ pub struct BindInfo {
 
 /// `GET /api/dashboard/oauth/session/{id}`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct OAuthSessionStatus {
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,6 +225,7 @@ pub struct OAuthSessionStatus {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum OAuthSessionState {
     Pending,

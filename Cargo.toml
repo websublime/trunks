@@ -80,6 +80,8 @@ regex = "1"
 url = "2"
 chrono = { version = "0.4", features = ["serde"] }
 rust-embed = { version = "8", features = ["include-exclude"] }
+# TypeScript declarations of the API types for the web app (behind each crate's `ts` feature)
+ts-rs = { version = "12", features = ["chrono-impl", "serde-json-impl", "no-serde-warnings"] }
 dirs = "6"
 toml = "0.8"
 comfy-table = "7"

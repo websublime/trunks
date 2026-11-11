@@ -1,0 +1,23 @@
+---
+// An icon from the console's set. Decorative unless `label` is given.
+import { ICONS, type IconName } from '../lib/icons';
+
+interface Props {
+  name: IconName;
+  label?: string;
+  class?: string;
+}
+const { name, label, class: extra = '' } = Astro.props;
+---
+
+{
+  label ? (
+    <svg class:list={['ic', extra]} viewBox="0 0 24 24" role="img" aria-label={label}>
+      <path d={ICONS[name]} />
+    </svg>
+  ) : (
+    <svg class:list={['ic', extra]} viewBox="0 0 24 24" aria-hidden="true">
+      <path d={ICONS[name]} />
+    </svg>
+  )
+}

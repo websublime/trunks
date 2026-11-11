@@ -138,6 +138,8 @@ disables); 30 s for the handshake with an upstream (`TRUNKS_UPSTREAM_INIT_TIMEOU
 
 ## Observe
 
+- The web console at `/` shows what the gateway holds and which upstreams failed their last
+  connection. It is embedded in the release binaries and the container images.
 - `GET /health` answers 200 while the process is serving. It does not check upstreams.
 - `GET /metrics` (Prometheus). It has no authentication: do not publish it.
   - `trunks_tool_calls_total{mcp_server_name,tool_name,outcome}` and

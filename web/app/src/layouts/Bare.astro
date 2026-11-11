@@ -1,0 +1,15 @@
+---
+// A page without the shell: nothing behind it is available yet (sign-in, not initialized).
+import Base from './Base.astro';
+
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+
+<Base title={title}>
+  <main class="bare gate">
+    <slot />
+  </main>
+</Base>

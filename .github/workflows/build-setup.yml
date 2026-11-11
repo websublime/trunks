@@ -1,0 +1,18 @@
+# Steps the release workflow runs before building each binary (dist: `github-build-setup`).
+# The console (web/app) is a static build embedded into the binary at compile time; a
+# release without it is a broken release, so the last step fails when it is missing.
+- name: Install Node.js
+  uses: actions/setup-node@v4
+  with:
+    node-version: 22
+- name: Build the web console
+  shell: bash
+  env:
+    ASTRO_TELEMETRY_DISABLED: "1"
+  run: |
+    cd web/app
+    npm ci --no-audit --no-fund
+    npm run build
+    rm -rf ../../crates/trunks-dashboard/dist
+    cp -R dist ../../crates/trunks-dashboard/dist
+    test -f ../../crates/trunks-dashboard/dist/index.html
