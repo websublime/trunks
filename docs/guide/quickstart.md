@@ -18,7 +18,10 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/websublime/trunks/releases/latest/download/trunks-installer.ps1 | iex"
 ```
 
-To build from source instead, or before the first tagged release exists (Rust 1.94 or newer):
+These links follow the newest final release. To install a pre-release, name it: replace
+`latest/download` with `download/<tag>`, for example `download/v0.1.0-rc.1`.
+
+To build from source instead (Rust 1.94 or newer):
 
 ```bash
 cargo install --locked --git https://github.com/websublime/trunks trunks

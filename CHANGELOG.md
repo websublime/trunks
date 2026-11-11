@@ -7,7 +7,9 @@ All notable changes to Trunks are recorded here. The format follows
 
 ## [Unreleased]
 
-First public version. Everything below is new.
+## [0.1.0-rc.1] - 2026-11-11
+
+Release candidate of the first public version. Everything below is new.
 
 ### Gateway
 

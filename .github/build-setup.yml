@@ -16,4 +16,7 @@
     npm run build
     rm -rf ../../crates/trunks-dashboard/dist
     cp -R dist ../../crates/trunks-dashboard/dist
+    # The placeholder is tracked: without it the checkout counts as modified and the binary
+    # reports itself as a `.dirty` build instead of the release it is.
+    : > ../../crates/trunks-dashboard/dist/.gitkeep
     test -f ../../crates/trunks-dashboard/dist/index.html
