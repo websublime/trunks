@@ -65,6 +65,7 @@ English technical terms):
 | [`docs/05-roadmap.md`](docs/05-roadmap.md) | Beyond v1: `line://ui` web app, OIDC, organisations and teams, governance |
 | [`docs/06-analise-db.md`](docs/06-analise-db.md) | Data-access layer analysis and decision (sqlx, no ORM) |
 | [`docs/07-desempenho.md`](docs/07-desempenho.md) | Benchmark results and how to reproduce them |
+| [`docs/08-web-app.md`](docs/08-web-app.md) | Web app definition: static Astro site with `line://ui`, no UI framework |
 
 ## Layout
 
