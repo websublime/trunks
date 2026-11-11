@@ -1,7 +1,7 @@
 // Starts a real Trunks server for a spec and drives it with the real CLI.
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -66,6 +66,13 @@ export class Server {
       env: { ...process.env, TRUNKS_CONFIG: join(this.dir, 'cli.toml') },
     });
     return stdout;
+  }
+
+  /** Writes a file next to the database (a `-c` file for the CLI); returns its path. */
+  async file(name: string, content: unknown): Promise<string> {
+    const path = join(this.dir, name);
+    await writeFile(path, JSON.stringify(content));
+    return path;
   }
 
   async stop(): Promise<void> {

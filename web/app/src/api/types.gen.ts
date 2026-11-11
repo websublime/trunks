@@ -50,7 +50,7 @@ export type InitRequest = { mode: ServerMode, };
 
 export type InitResponse = { status: string, admin_access_token?: string | null, };
 
-export type McpServer = { name: ServerName, transport: Transport, enabled: boolean, description: string, session_mode: SessionMode, url?: string | null, header_keys: Array<string>, command?: string | null, args: Array<string>, env_keys: Array<string>, created_at?: string | null, updated_at?: string | null, };
+export type McpServer = { name: ServerName, transport: Transport, enabled: boolean, description: string, session_mode: SessionMode, url?: string | null, header_keys?: Array<string> | null, command?: string | null, args?: Array<string> | null, env_keys?: Array<string> | null, created_at?: string | null, updated_at?: string | null, };
 
 export type Tool = { name: CanonicalName, server: ServerName, enabled: boolean, description: string, input_schema?: JsonValue | null, annotations?: JsonValue | null, };
 
@@ -58,7 +58,7 @@ export type Prompt = { name: CanonicalName, server: ServerName, enabled: boolean
 
 export type Resource = { uri: ResourceUri, server: ServerName, name: string, enabled: boolean, description: string, mime_type?: string | null, annotations?: JsonValue | null, meta?: JsonValue | null, };
 
-export type RegisterServerInput = { name: string, transport: Transport, description: string, url?: string | null, bearer_token?: string | null, headers: { [key in string]: string }, command?: string | null, args: Array<string>, env: { [key in string]: string }, session_mode: SessionMode, oauth_redirect_uri?: string | null, oauth_client_id?: string | null, oauth_client_secret?: string | null, oauth_scopes: Array<string>, };
+export type RegisterServerInput = { name: string, transport: Transport, description: string, url?: string | null, bearer_token?: string | null, headers?: { [key in string]: string } | null, command?: string | null, args?: Array<string> | null, env?: { [key in string]: string } | null, session_mode: SessionMode, oauth_redirect_uri?: string | null, oauth_client_id?: string | null, oauth_client_secret?: string | null, oauth_scopes?: Array<string> | null, };
 
 export type RegisterServerResult = { server?: McpServer | null, authorization_required?: AuthorizationRequired | null, };
 
@@ -66,7 +66,7 @@ export type AuthorizationRequired = { session_id: string, authorization_url: str
 
 export type CompleteOAuthRequest = { code: string, state: string, };
 
-export type EnableDisableResult = { name?: string | null, tools_affected: Array<string>, prompts_affected: Array<string>, resources_affected: Array<string>, };
+export type EnableDisableResult = { name?: string | null, tools_affected?: Array<string> | null, prompts_affected?: Array<string> | null, resources_affected?: Array<string> | null, };
 
 export type ToolGroup = { name: string, description: string, 
 /**
@@ -187,11 +187,11 @@ counts: Counts,
  */
 sessions?: SessionStats | null, metrics_enabled: boolean, };
 
-export type ConfigSummary = { url?: string | null, header_keys: Array<string>, 
+export type ConfigSummary = { url?: string | null, header_keys?: Array<string> | null, 
 /**
  * Truncated to 80 characters.
  */
-command?: string | null, args: Array<string>, env_keys: Array<string>, };
+command?: string | null, args?: Array<string> | null, env_keys?: Array<string> | null, };
 
 export type OAuthStatus = "none" | "pending" | "authorized";
 

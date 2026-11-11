@@ -53,3 +53,40 @@ html[data-state='failed'] .boot-failed{display:flex}
 .form.close{gap:var(--line-size-3)}
 line-button.wide{width:100%}
 line-button.wide::part(root){width:100%}
+
+/* data views */
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tk .name{font-family:var(--line-font-mono);font-weight:var(--line-font-weight-5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+trunks-copy{display:inline-flex;flex:none}
+tr:hover .copy,tr:focus-within .copy,.copy:focus-visible,.copy.show{opacity:1}
+.w-name{width:28%}
+.w-error{width:26%}
+.top{align-items:start}
+.end{text-align:right}
+.hint.with-icon{margin-top:var(--line-size-3);display:flex;gap:var(--line-size-1);align-items:center}
+.mono-box.grow{flex:1}
+dl.kv dd.nowrap{flex-wrap:nowrap}
+.filters{display:flex;gap:var(--line-size-3);flex-wrap:wrap;align-items:flex-end}
+.filters .fld{min-width:var(--line-size-13)}
+.more{display:flex;align-items:center;gap:var(--line-size-3);padding:var(--line-size-2) var(--line-size-3);border-top:var(--line-border-1) solid var(--line-gray-6);color:var(--line-gray-text-low);font-size:var(--line-font-size-0)}
+.exp-btn{border:0;background:transparent;color:var(--line-gray-text-low);padding:0;width:var(--line-size-5);height:var(--line-size-5);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border-radius:var(--line-radius-1)}
+.exp-btn[aria-expanded=true] .chev{transform:rotate(90deg)}
+.tbl td.detail{background:var(--line-gray-1);height:auto}
+.tbl tr.open > td{border-bottom:0}
+.wrap-any{overflow-wrap:anywhere}
+.tk a.chip{text-decoration:none;color:var(--line-gray-12)}
+.tk a.chip[aria-current=true]{background:var(--line-accent-bg);border-color:var(--line-accent-border);color:var(--line-accent-text)}
+.inp select{appearance:auto}
+ul.plain{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--line-size-1);min-width:0}
+ul.plain li{min-width:0;display:flex}
+@container app (max-width: 48rem){
+ .ph .t{flex:0 1 auto}
+ table.tbl.stack td:not(.lead):not(.detail)>*{justify-self:start}
+ table.tbl.stack td.lead .row{flex-wrap:nowrap;align-items:flex-start}
+ table.tbl.stack td.lead span.exp-btn{display:none}
+ table.tbl.stack td.detail{grid-template-columns:minmax(0,1fr);overflow-x:auto}
+ table.tbl.stack td.detail::before{display:none}
+ table.tbl.stack .params tr{padding:var(--line-size-1) 0}
+ table.tbl.stack .params td{padding:2px 0}
+ .stat + .stat.sep-l{border-left:0;border-top:var(--line-border-1) solid var(--line-gray-6)}
+}

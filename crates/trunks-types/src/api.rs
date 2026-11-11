@@ -65,12 +65,15 @@ pub struct McpServer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>"))]
     pub header_keys: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>"))]
     pub args: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>"))]
     pub env_keys: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
@@ -138,12 +141,15 @@ pub struct RegisterServerInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bearer_token: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<BTreeMap<String, String>>"))]
     pub headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>"))]
     pub args: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<BTreeMap<String, String>>"))]
     pub env: BTreeMap<String, String>,
     #[serde(default)]
     pub session_mode: SessionMode,
@@ -154,6 +160,7 @@ pub struct RegisterServerInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth_client_secret: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>"))]
     pub oauth_scopes: Vec<String>,
 }
 
@@ -220,10 +227,13 @@ pub struct EnableDisableResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>"))]
     pub tools_affected: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>"))]
     pub prompts_affected: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>"))]
     pub resources_affected: Vec<String>,
 }
 

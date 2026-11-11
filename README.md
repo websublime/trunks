@@ -15,8 +15,9 @@ delivers the gateway, registry, CLI, teams with per-resource grants, single sign
 organisations and declarative configuration. See `docs/`.
 
 > Status: **pre-alpha**. The gateway, registry, CLI, access model and single sign-on are
-> implemented and tested. The web console has its first part (sign-in and overview); the rest
-> of it and the first tagged release are still to come (`docs/03-plano.md`).
+> implemented and tested. The web console is read-only so far (sign-in, overview, servers,
+> tools, prompts, resources, tool groups, diagnostics); its management screens and the first
+> tagged release are still to come (`docs/03-plano.md`).
 
 ## Quickstart
 

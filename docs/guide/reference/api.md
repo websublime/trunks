@@ -45,7 +45,18 @@ started in. Development servers initialize themselves at start-up.
 ## Web console
 
 Any `GET` or `HEAD` outside the paths in this document is a page or a file of the web
-console, which is embedded in the binary: `/` is the overview, `/login/` the sign-in. The
+console, which is embedded in the binary:
+
+| Page | Shows |
+|---|---|
+| `/` | overview |
+| `/login/` | sign-in |
+| `/servers/`, `/servers/detail/?name=<server>` | upstream servers; one server with its tools, prompts and resources (`&tab=prompts`, `&tab=resources`) |
+| `/tools/`, `/prompts/`, `/resources/` | the catalogue; `?server=<server>` and `?enabled=true\|false` filter it |
+| `/groups/`, `/groups/detail/?name=<group>` | tool groups; one group with its endpoint and effective tools |
+| `/diagnostics/` | configuration and failing upstreams (administrators) |
+
+The
 files are static and the same for everyone, so they need no authentication; everything they
 display is read from the API above with the viewer's own session. They are sent with a strict
 `Content-Security-Policy` (no inline script or style, no framing). An unknown page answers 404
