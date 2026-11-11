@@ -19,8 +19,6 @@ hosting = "github"
 install-updater = false
 # Steps run before each build: the web console is built and embedded into the binary.
 github-build-setup = "../build-setup.yml"
-# TEMPORARY, for this pull request only: build every target on the pull request.
-pr-run-mode = "upload"
 
 # Windows on ARM is built on a native runner. Cross-compiling it from Linux fails in `ring`,
 # which insists on plain clang for this target while the cross toolchain passes clang-cl flags.

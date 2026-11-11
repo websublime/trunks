@@ -3285,7 +3285,7 @@ dependencies = [
 
 [[package]]
 name = "trunks"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "assert_cmd",
  "axum",
@@ -3318,7 +3318,7 @@ dependencies = [
 
 [[package]]
 name = "trunks-api"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "axum",
  "chrono",
@@ -3352,7 +3352,7 @@ dependencies = [
 
 [[package]]
 name = "trunks-client"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "pretty_assertions",
  "reqwest",
@@ -3366,7 +3366,7 @@ dependencies = [
 
 [[package]]
 name = "trunks-core"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -3399,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "trunks-dashboard"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "pretty_assertions",
  "rust-embed",
@@ -3407,7 +3407,7 @@ dependencies = [
 
 [[package]]
 name = "trunks-db"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3425,7 +3425,7 @@ dependencies = [
 
 [[package]]
 name = "trunks-testing"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "axum",
  "http",
@@ -3440,7 +3440,7 @@ dependencies = [
 
 [[package]]
 name = "trunks-types"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
