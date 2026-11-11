@@ -6,7 +6,11 @@ import { get } from '../api/client';
 import type { ServerSummary } from '../api/types.gen';
 import { count } from '../lib/text';
 import { DataView, type Heading } from './data-view';
+import { icon } from './icon';
 import { errorText, nameCell, none, oauthBadge, state, statusBadge, transportBadge } from './parts';
+
+const register = () =>
+  html`<a class="btn primary" href="/servers/new/">${icon('plus')}Register server</a>`;
 
 class TrunksServers extends DataView<ServerSummary[]> {
   protected readonly subject = 'servers';
@@ -16,9 +20,14 @@ class TrunksServers extends DataView<ServerSummary[]> {
   }
 
   protected heading(servers: ServerSummary[] | undefined): Heading {
-    if (servers === undefined) return { title: 'Servers' };
+    const actions = this.session?.admin ? { actions: register() } : {};
+    if (servers === undefined) return { title: 'Servers', ...actions };
     const enabled = servers.filter((s) => s.enabled).length;
-    return { title: 'Servers', sub: `${count(servers.length, 'upstream server')}. ${enabled} enabled.` };
+    return {
+      title: 'Servers',
+      sub: `${count(servers.length, 'upstream server')}. ${enabled} enabled.`,
+      ...actions,
+    };
   }
 
   protected content(servers: ServerSummary[]): TemplateResult {
@@ -28,8 +37,8 @@ class TrunksServers extends DataView<ServerSummary[]> {
           ? state(
               'servers',
               'No servers yet',
-              html`Register an upstream MCP server with <code class="mono">trunks register</code> to
-                expose its tools through this gateway.`,
+              'Register an upstream MCP server to expose its tools through this gateway.',
+              register(),
             )
           : state('servers', 'No servers yet', 'An administrator has not granted you any server.')}
       </section>`;

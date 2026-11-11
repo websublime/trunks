@@ -7,10 +7,11 @@ import { html, nothing, type TemplateResult } from 'lit';
 import { get } from '../api/client';
 import type { Overview, Prompt, Resource, ServerSummary, Tool } from '../api/types.gen';
 import { promptArguments, toolParameters, type Parameter } from '../lib/schema';
+import { setEntity } from '../lib/manage';
 import { middle, param, withParams } from '../lib/text';
 import { DataView, type Heading } from './data-view';
 import { icon } from './icon';
-import { badge, nameCell, state, statusBadge } from './parts';
+import { badge, nameCell, state, statusBadge, toggle } from './parts';
 
 type Kind = 'tools' | 'prompts' | 'resources';
 
@@ -161,7 +162,7 @@ class TrunksCatalog extends DataView<Catalog> {
                         : html`<th scope="col" class="num">
                             ${kind === 'tools' ? 'Parameters' : 'Arguments'}
                           </th>`}
-                      <th scope="col" class="end">Status</th>
+                      <th scope="col" class="end">${this.session?.admin ? 'Enabled' : 'Status'}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -182,7 +183,7 @@ class TrunksCatalog extends DataView<Catalog> {
   #row(kind: Kind, singular: string, e: Entry): TemplateResult {
     const expandable = kind !== 'resources' && e.parameters.length > 0;
     const open = this.open.has(e.name);
-    const toggle = () => {
+    const expand = () => {
       const next = new Set(this.open);
       if (open) next.delete(e.name);
       else next.add(e.name);
@@ -198,7 +199,7 @@ class TrunksCatalog extends DataView<Catalog> {
                   class="exp-btn"
                   aria-expanded=${open ? 'true' : 'false'}
                   aria-label=${`${what} of ${e.name}`}
-                  @click=${toggle}
+                  @click=${expand}
                 >
                   ${icon('chevronRight', 'chev')}
                 </button>`
@@ -212,7 +213,21 @@ class TrunksCatalog extends DataView<Catalog> {
         ${kind === 'resources'
           ? html`<td data-label="Type">${e.mime === '' ? html`<span class="lo">—</span>` : badge(e.mime, '', undefined, true)}</td>`
           : html`<td data-label=${what} class="num">${e.parameters.length}</td>`}
-        <td data-label="Status" class="act">${statusBadge(e.enabled)}</td>
+        <td data-label=${this.session?.admin ? 'Enabled' : 'Status'} class="act">
+          ${this.session?.admin
+            ? toggle(
+                e.enabled,
+                `Enabled: ${e.name}`,
+                (on) =>
+                  void this.change(
+                    e.name,
+                    () => setEntity(kind, e.name, on),
+                    `Couldn’t ${on ? 'enable' : 'disable'} ${e.name}`,
+                  ),
+                this.busy.has(e.name),
+              )
+            : statusBadge(e.enabled)}
+        </td>
       </tr>
       ${open
         ? html`<tr>

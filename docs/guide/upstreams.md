@@ -75,6 +75,27 @@ trunks oauth-complete <session-id> --code <code> --state <state>
 An authorization that is not completed within 10 minutes expires; run `register` again.
 Trunks stores the tokens and refreshes them when they expire.
 
+## In the web console
+
+Everything above can be done from the console's **Servers** page (administrators only in
+enterprise mode):
+
+- **Register server** opens a form with the same fields as the flags: a local process
+  (command, arguments, environment variables) or a remote server (URL, bearer token, headers),
+  and the session mode. Values of variables, headers and tokens are sent to the server once
+  and never shown again.
+- When a remote server asks for OAuth, the console shows "Authorization required". **Open
+  provider** opens the provider in a new window; once you approve, the provider sends the
+  browser back to Trunks and the server is registered. As with the CLI, nothing is stored
+  until then, and the request expires after 10 minutes.
+- For a provider without dynamic client registration, open "Authorization with your own OAuth
+  client" in the form: it shows the redirect URI to register at the provider,
+  `<public URL>/api/dashboard/oauth/callback`, and takes the client ID, secret and scopes.
+- A server's page has a switch for the whole server and one for each tool, prompt and
+  resource, and **Delete**.
+
+Replacing the definition of a registered server (`--force`) and export and import are CLI only.
+
 ## From a file
 
 The same definition as JSON, for version control or automation:

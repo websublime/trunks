@@ -6,6 +6,7 @@ import '@websublime/line-components/button';
 import { LitElement, html, nothing, type TemplateResult } from 'lit';
 
 import { ApiError } from '../api/client';
+import { takeFlash } from '../lib/flash';
 import { clock } from '../lib/format';
 import { Poller, REFRESH_SECONDS } from '../lib/poll';
 import type { Session } from '../lib/session';
@@ -31,6 +32,8 @@ export abstract class DataView<T> extends LitElement {
     error: { state: true },
     stale: { state: true },
     updatedAt: { state: true },
+    notice: { state: true },
+    busy: { state: true },
   };
 
   declare session: Session | undefined;
@@ -40,6 +43,10 @@ export abstract class DataView<T> extends LitElement {
   /** Why the last refresh failed; the previous data stays on screen. */
   declare stale: string | undefined;
   declare updatedAt: Date | undefined;
+  /** The outcome of the last thing the person did here. */
+  declare notice: { tone: 'success' | 'danger'; title: string; text?: string } | undefined;
+  /** Keys of the changes in flight, so their controls cannot be pressed twice. */
+  declare busy: ReadonlySet<string>;
 
   /** What this view lists, for messages: "servers". */
   protected abstract readonly subject: string;
@@ -54,8 +61,15 @@ export abstract class DataView<T> extends LitElement {
     return this;
   }
 
+  constructor() {
+    super();
+    this.busy = new Set();
+  }
+
   override connectedCallback(): void {
     super.connectedCallback();
+    const arrived = takeFlash();
+    if (arrived !== undefined) this.notice = { tone: 'success', title: arrived };
     void session().then((s) => {
       this.session = s;
       this.#poller.start();
@@ -70,6 +84,34 @@ export abstract class DataView<T> extends LitElement {
   /** Loads again now. */
   protected refresh(): void {
     this.#poller.now();
+  }
+
+  /**
+   * Makes a change and shows its outcome: the data is loaded again either way, and a failure
+   * is reported in place with the server's own reason. `key` marks the control as busy.
+   */
+  protected async change(key: string, run: () => Promise<unknown>, failed: string): Promise<void> {
+    if (this.busy.has(key)) return;
+    this.busy = new Set(this.busy).add(key);
+    try {
+      await run();
+      if (this.notice?.tone === 'danger') this.notice = undefined;
+    } catch (e) {
+      if (e instanceof ApiError && e.signedOut) {
+        location.reload();
+        return;
+      }
+      this.notice = {
+        tone: 'danger',
+        title: failed,
+        text: `${e instanceof Error ? e.message : 'Unknown error'}. Nothing changed.`,
+      };
+    } finally {
+      await this.#refresh();
+      const busy = new Set(this.busy);
+      busy.delete(key);
+      this.busy = busy;
+    }
   }
 
   async #refresh(): Promise<void> {
@@ -127,6 +169,27 @@ export abstract class DataView<T> extends LitElement {
           ${h.actions ?? nothing}
         </div>
       </div>
+      ${this.notice === undefined
+        ? nothing
+        : html`<div
+            class="alert ${this.notice.tone}"
+            role=${this.notice.tone === 'danger' ? 'alert' : 'status'}
+          >
+            ${icon(this.notice.tone === 'danger' ? 'alert' : 'checkCircle')}
+            <div class="bd">
+              <span class="ttl">${this.notice.title}</span>
+              ${this.notice.text === undefined ? nothing : html`<span>${this.notice.text}</span>`}
+            </div>
+            <button
+              type="button"
+              class="btn ibtn ghost"
+              aria-label="Dismiss"
+              title="Dismiss"
+              @click=${() => (this.notice = undefined)}
+            >
+              ${icon('close')}
+            </button>
+          </div>`}
       ${this.stale === undefined
         ? nothing
         : html`<div class="alert warning" role="status">

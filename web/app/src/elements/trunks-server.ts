@@ -5,10 +5,23 @@ import { html, nothing, type TemplateResult } from 'lit';
 
 import { ApiError, get } from '../api/client';
 import type { ServerDetail } from '../api/types.gen';
-import { middle, param, withParams } from '../lib/text';
+import { flash } from '../lib/flash';
+import { deleteServer, setEntity, setServer, type EntityKind } from '../lib/manage';
+import { count, middle, param, withParams } from '../lib/text';
 import { DataView, type Heading } from './data-view';
+import { confirm } from './dialog';
 import { icon } from './icon';
-import { badge, errorText, nameCell, none, oauthBadge, state, statusBadge, transportBadge } from './parts';
+import {
+  badge,
+  errorText,
+  nameCell,
+  none,
+  oauthBadge,
+  state,
+  statusBadge,
+  toggle,
+  transportBadge,
+} from './parts';
 
 type Tab = 'tools' | 'prompts' | 'resources';
 const TABS: Tab[] = ['tools', 'prompts', 'resources'];
@@ -36,7 +49,42 @@ class TrunksServer extends DataView<ServerDetail> {
       mono: true,
       crumbs: [['Servers', '/servers/']],
       ...(server ? { sub: server.description } : {}),
+      ...(server && this.session?.admin ? { actions: this.#actions(server) } : {}),
     };
+  }
+
+  /** What an administrator can do to the whole server. */
+  #actions(s: ServerDetail): TemplateResult {
+    return html`
+      ${toggle(
+        s.enabled,
+        `Enabled: ${s.name}`,
+        (on) =>
+          void this.change(`server`, () => setServer(s.name, on), `Couldn’t ${on ? 'enable' : 'disable'} ${s.name}`),
+        this.busy.has('server'),
+      )}
+      <button type="button" class="btn danger" @click=${() => void this.#delete(s)}>
+        ${icon('trash')}Delete
+      </button>
+    `;
+  }
+
+  async #delete(s: ServerDetail): Promise<void> {
+    const holds = `${count(s.counts.tools, 'tool')}, ${count(s.counts.prompts, 'prompt')} and ${count(s.counts.resources, 'resource')}`;
+    const deleted = await confirm({
+      title: `Delete ${s.name}?`,
+      body: html`Its ${holds} leave the gateway at once, and its stored credentials are removed.
+        Grants and tool groups that name <span class="mono">${s.name}</span> are kept and apply
+        again if a server of that name is registered.`,
+      action: 'Delete server',
+      working: 'Deleting…',
+      failed: 'Couldn’t delete',
+      run: () => deleteServer(s.name),
+    });
+    if (deleted) {
+      flash(`Server ${s.name} deleted.`);
+      location.assign('/servers/');
+    }
   }
 
   protected content(s: ServerDetail): TemplateResult {
@@ -129,6 +177,8 @@ class TrunksServer extends DataView<ServerDetail> {
               enabled: r.enabled,
             }));
     const label = tab === 'tools' ? 'Tool' : tab === 'prompts' ? 'Prompt' : 'Resource';
+    const kind: EntityKind = tab;
+    const admin = this.session?.admin === true;
     if (rows.length === 0) {
       return state(
         tab,
@@ -143,7 +193,7 @@ class TrunksServer extends DataView<ServerDetail> {
         <thead>
           <tr>
             <th scope="col">${label}</th>
-            <th scope="col" class="end">Status</th>
+            <th scope="col" class="end">${admin ? 'Enabled' : 'Status'}</th>
           </tr>
         </thead>
         <tbody>
@@ -151,7 +201,21 @@ class TrunksServer extends DataView<ServerDetail> {
             (r) =>
               html`<tr>
                 <td data-label=${label} class="lead">${nameCell(r.name, r.description, undefined, r.shown)}</td>
-                <td data-label="Status" class="act">${statusBadge(r.enabled)}</td>
+                <td data-label=${admin ? 'Enabled' : 'Status'} class="act">
+                  ${admin
+                    ? toggle(
+                        r.enabled,
+                        `Enabled: ${r.name}`,
+                        (on) =>
+                          void this.change(
+                            r.name,
+                            () => setEntity(kind, r.name, on),
+                            `Couldn’t ${on ? 'enable' : 'disable'} ${r.name}`,
+                          ),
+                        this.busy.has(r.name),
+                      )
+                    : statusBadge(r.enabled)}
+                </td>
               </tr>`,
           )}
         </tbody>

@@ -52,8 +52,10 @@ console, which is embedded in the binary:
 | `/` | overview |
 | `/login/` | sign-in |
 | `/servers/`, `/servers/detail/?name=<server>` | upstream servers; one server with its tools, prompts and resources (`&tab=prompts`, `&tab=resources`) |
+| `/servers/new/` | register a server (administrators) |
 | `/tools/`, `/prompts/`, `/resources/` | the catalogue; `?server=<server>` and `?enabled=true\|false` filter it |
 | `/groups/`, `/groups/detail/?name=<group>` | tool groups; one group with its endpoint and effective tools |
+| `/groups/new/`, `/groups/edit/?name=<group>` | create or change a tool group (administrators) |
 | `/diagnostics/` | configuration and failing upstreams (administrators) |
 
 The
@@ -252,6 +254,13 @@ Each view holds only what the caller may use, by the same rules as the REST API:
 tools and groups a user was granted, counted accordingly; a server or group outside the
 caller's reach answers 404 like one that does not exist. `overview` includes `sessions` (open
 upstream sessions of the whole process) for administrators only.
+
+`GET /api/dashboard/oauth/callback?code=&state=` is the redirect URI of an upstream
+authorization started from the console (`oauth_redirect_uri` in the server definition). The
+provider sends the browser there; it takes no authentication, since the `state` identifies
+the pending registration. It completes the registration and answers with a small HTML page
+that says whether it worked. `oauth/session/{id}` reports that authorization's `status`:
+`pending`, `completed`, `expired` or `unknown`.
 
 `diagnostics` and `oauth/session/{id}` describe the installation and are for administrators
 (403 otherwise). `diagnostics` reports the database backend, the listen address, the allowed

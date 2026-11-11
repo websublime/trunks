@@ -1,6 +1,7 @@
 //! A fake OAuth authorization server (RFC 8414 metadata, RFC 7591 DCR, token endpoint) and a
 //! protected MCP upstream (401 + `WWW-Authenticate`, RFC 9728 metadata), on wiremock.
-//! Accepts `code = "good-code"`; issues `at-1` then `at-2` on refresh.
+//! Accepts `code = "good-code"`; issues `at-1` then `at-2` on refresh. `GET /authorize` approves
+//! at once and redirects back with that code, like a provider where the person clicked "Allow".
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -50,6 +51,25 @@ impl Respond for TokenEndpoint {
                 ResponseTemplate::new(400).set_body_json(json!({"error": "unsupported_grant_type"}))
             }
         }
+    }
+}
+
+/// The authorization endpoint of a provider where the person always says yes: sends the
+/// browser straight back to `redirect_uri` with the code the token endpoint accepts.
+#[derive(Debug)]
+pub struct AuthorizeEndpoint;
+impl Respond for AuthorizeEndpoint {
+    fn respond(&self, req: &Request) -> ResponseTemplate {
+        let query: HashMap<String, String> = req.url.query_pairs().into_owned().collect();
+        let (Some(redirect), Some(state)) = (query.get("redirect_uri"), query.get("state")) else {
+            return ResponseTemplate::new(400)
+                .set_body_string("redirect_uri and state are required");
+        };
+        let Ok(mut back) = url::Url::parse(redirect) else {
+            return ResponseTemplate::new(400).set_body_string("redirect_uri is not a URL");
+        };
+        back.query_pairs_mut().append_pair("code", "good-code").append_pair("state", state);
+        ResponseTemplate::new(302).insert_header("location", back.as_str())
     }
 }
 
@@ -124,6 +144,11 @@ impl Fake {
                 "token_endpoint_auth_method": "none", "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"]
             })),
         ).mount(&as_srv).await;
+        Mock::given(method("GET"))
+            .and(path("/authorize"))
+            .respond_with(AuthorizeEndpoint)
+            .mount(&as_srv)
+            .await;
         Mock::given(method("POST"))
             .and(path("/token"))
             .respond_with(TokenEndpoint { calls: token_calls.clone(), expires_in })
